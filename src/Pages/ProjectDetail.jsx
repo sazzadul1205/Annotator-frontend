@@ -1,15 +1,16 @@
-import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   getProject,
   getComments,
   uploadFileToProject,
   validateComment,
   getUnvalidatedCount,
+  downloadCommentsCSV,
 } from "../services/api";
 import Sidebar from "../components/Sidebar";
 import { useAuth } from "../hooks/useAuth";
+import Swal from "sweetalert2";
 import {
   ArrowLeft,
   Upload,
@@ -24,7 +25,9 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
+  Download,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 function ProjectDetail() {
   const { projectId } = useParams();
@@ -42,15 +45,32 @@ function ProjectDetail() {
     search: "",
   });
   const [uploading, setUploading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [validatingIds, setValidatingIds] = useState(new Set());
 
   // Temporary selections for language and sentiment per comment
   const [tempSelections, setTempSelections] = useState({});
 
   // Fetch project details
-  const { data: projectData } = useQuery({
+  const { data: projectData, error: projectError, refetch: refetchProject } = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => getProject(projectId),
+    retry: false,
   });
+
+  // Redirect if project not found or deleted
+  useEffect(() => {
+    if (projectError?.response?.status === 404) {
+      Swal.fire({
+        icon: "error",
+        title: "Project Not Found",
+        text: "The project may have been deleted.",
+        confirmButtonColor: "#3B82F6",
+      }).then(() => {
+        navigate("/projects");
+      });
+    }
+  }, [projectError, navigate]);
 
   // Build query params for comments
   const queryParams = {
@@ -65,7 +85,7 @@ function ProjectDetail() {
   const {
     data: commentsData,
     isLoading,
-    refetch,
+    refetch: refetchComments,
   } = useQuery({
     queryKey: ["comments", projectId, page, limit, showValidated, filters],
     queryFn: () => getComments(projectId, queryParams),
@@ -81,42 +101,145 @@ function ProjectDetail() {
   const pagination = commentsData?.data?.data?.pagination || {};
   const unvalidatedCount = unvalidatedData?.data?.data?.unvalidatedCount || 0;
 
-  // Validate single comment mutation
-  const validateMutation = useMutation({
-    mutationFn: ({ commentId, data }) => validateComment(commentId, data),
-    onSuccess: () => {
-      // Invalidate all queries that depend on project data
-      queryClient.invalidateQueries({ queryKey: ["comments", projectId] });
-      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-      queryClient.invalidateQueries({
-        queryKey: ["unvalidated-count", projectId],
-      });
-      // Optionally refetch immediately
-      refetch();
-      refetchUnvalidated();
-    },
-  });
+  // Check if file has already been uploaded
+  const fileUploaded = !!project?.fileInfo;
 
-  // File upload mutation
-  const uploadMutation = useMutation({
-    mutationFn: ({ projectId, file }) => uploadFileToProject(projectId, file),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["comments", projectId] });
-      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-      queryClient.invalidateQueries({
-        queryKey: ["unvalidated-count", projectId],
+  // 📝 Validate single comment - OPTIMISTIC UPDATE without mutation
+  const handleValidate = async (commentId, language, sentiment) => {
+    if (!language || !sentiment) {
+      Swal.fire({
+        icon: "warning",
+        title: "Missing Selection",
+        text: "Please select both language and sentiment",
+        confirmButtonColor: "#3B82F6",
       });
-      refetch();
-      refetchUnvalidated();
-      setUploading(false);
-    },
-    onError: (err) => {
-      alert("Upload failed: " + (err.response?.data?.error || "Unknown error"));
-      setUploading(false);
-    },
-  });
+      return;
+    }
 
-  const handleFileUpload = (e) => {
+    // Add to validating set to show loading state
+    setValidatingIds((prev) => new Set(prev).add(commentId));
+
+    // Get current data for rollback
+    const previousComments = queryClient.getQueryData([
+      "comments",
+      projectId,
+      page,
+      limit,
+      showValidated,
+      filters,
+    ]);
+    const previousProject = queryClient.getQueryData(["project", projectId]);
+    const previousUnvalidated = queryClient.getQueryData(["unvalidated-count", projectId]);
+
+    // 🔥 OPTIMISTIC UPDATE - Update UI instantly
+    // 1. Update comment in cache
+    queryClient.setQueryData(
+      ["comments", projectId, page, limit, showValidated, filters],
+      (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          data: {
+            ...old.data,
+            data: {
+              ...old.data.data,
+              comments: old.data.data.comments.map((comment) =>
+                comment._id === commentId
+                  ? {
+                      ...comment,
+                      language: language,
+                      sentiment: sentiment,
+                      isValidated: true,
+                      validatedBy: user?.userId || "You",
+                      validatedByUsername: user?.username || "You",
+                      validatedAt: new Date().toISOString(),
+                    }
+                  : comment
+              ),
+            },
+          },
+        };
+      }
+    );
+
+    // 2. Update unvalidated count
+    queryClient.setQueryData(["unvalidated-count", projectId], (old) => {
+      if (!old) return old;
+      return {
+        ...old,
+        data: {
+          ...old.data,
+          data: {
+            unvalidatedCount: Math.max(0, (old.data?.data?.unvalidatedCount || 0) - 1),
+          },
+        },
+      };
+    });
+
+    // 3. Update project progress
+    queryClient.setQueryData(["project", projectId], (old) => {
+      if (!old) return old;
+      return {
+        ...old,
+        data: {
+          ...old.data,
+          data: {
+            ...old.data.data,
+            validatedCount: (old.data?.data?.validatedCount || 0) + 1,
+          },
+        },
+      };
+    });
+
+    // Clear temp selections
+    setTempSelections((prev) => {
+      const newState = { ...prev };
+      delete newState[commentId];
+      return newState;
+    });
+
+    // 🚀 Make the actual API call
+    try {
+      await validateComment(commentId, { language, sentiment });
+      // Success - no need to do anything, UI already updated
+    } catch (err) {
+      // ❌ FAILURE - Rollback all optimistic updates
+      console.error("Validation error:", err);
+
+      // Restore previous state
+      if (previousComments) {
+        queryClient.setQueryData(
+          ["comments", projectId, page, limit, showValidated, filters],
+          previousComments
+        );
+      }
+      if (previousProject) {
+        queryClient.setQueryData(["project", projectId], previousProject);
+      }
+      if (previousUnvalidated) {
+        queryClient.setQueryData(["unvalidated-count", projectId], previousUnvalidated);
+      }
+
+      // Show error alert
+      const errorMessage = err.response?.data?.error || "Failed to validate comment";
+      Swal.fire({
+        icon: "error",
+        title: "Validation Failed",
+        text: errorMessage,
+        confirmButtonColor: "#3B82F6",
+      });
+    } finally {
+      // Remove from validating set
+      setValidatingIds((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(commentId);
+        return newSet;
+      });
+    }
+  };
+
+  // 📤 File upload - OPTIMISTIC UPDATE without mutation
+  const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
@@ -126,23 +249,119 @@ function ProjectDetail() {
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ];
     if (!validTypes.includes(file.type)) {
-      alert("Please upload a CSV or Excel file");
+      Swal.fire({
+        icon: "error",
+        title: "Invalid File",
+        text: "Please upload a CSV or Excel file",
+        confirmButtonColor: "#3B82F6",
+      });
       return;
     }
     if (file.size > 50 * 1024 * 1024) {
-      alert("File size must be less than 50MB");
+      Swal.fire({
+        icon: "error",
+        title: "File Too Large",
+        text: "File size must be less than 50MB",
+        confirmButtonColor: "#3B82F6",
+      });
       return;
     }
+
     setUploading(true);
-    uploadMutation.mutate({ projectId, file });
+
+    // Get previous state for rollback
+    const previousProject = queryClient.getQueryData(["project", projectId]);
+
+    // 🔥 OPTIMISTIC UPDATE - Show file as uploaded instantly
+    queryClient.setQueryData(["project", projectId], (old) => {
+      if (!old) return old;
+      return {
+        ...old,
+        data: {
+          ...old.data,
+          data: {
+            ...old.data.data,
+            fileInfo: {
+              originalName: file.name,
+              uploadedAt: new Date().toISOString(),
+              _optimistic: true,
+            },
+            status: "in_progress",
+          },
+        },
+      };
+    });
+
+    // 🚀 Make the actual API call
+    try {
+      const response = await uploadFileToProject(projectId, file);
+      
+      // Success - refetch to get real data
+      await queryClient.invalidateQueries({ queryKey: ["comments", projectId] });
+      await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+      await queryClient.invalidateQueries({ queryKey: ["unvalidated-count", projectId] });
+      await refetchComments();
+      await refetchUnvalidated();
+      await refetchProject();
+
+      Swal.fire({
+        icon: "success",
+        title: "Upload Successful",
+        text: response?.data?.message || "File uploaded and comments imported.",
+        timer: 2000,
+        showConfirmButton: false,
+      });
+    } catch (err) {
+      // ❌ FAILURE - Rollback
+      console.error("Upload error:", err);
+
+      if (previousProject) {
+        queryClient.setQueryData(["project", projectId], previousProject);
+      }
+
+      const errorMessage = err.response?.data?.error || "Upload failed";
+      Swal.fire({
+        icon: "error",
+        title: "Upload Failed",
+        text: errorMessage,
+        confirmButtonColor: "#3B82F6",
+      });
+    } finally {
+      setUploading(false);
+    }
   };
 
-  const handleValidate = (commentId, language, sentiment) => {
-    if (!language || !sentiment) {
-      alert("Please select both language and sentiment");
-      return;
+  // 📥 Download CSV
+  const handleDownloadCSV = async () => {
+    setDownloading(true);
+    try {
+      const response = await downloadCommentsCSV(projectId);
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `project_${project.name.replace(/\s+/g, "_")}_comments.csv`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      Swal.fire({
+        icon: "success",
+        title: "Download Started",
+        text: "Your CSV file is being downloaded.",
+        timer: 1500,
+        showConfirmButton: false,
+      });
+    } catch (err) {
+      console.error("Download error:", err);
+      Swal.fire({
+        icon: "error",
+        title: "Download Failed",
+        text: err.response?.data?.error || "Failed to download CSV",
+        confirmButtonColor: "#3B82F6",
+      });
+    } finally {
+      setDownloading(false);
     }
-    validateMutation.mutate({ commentId, data: { language, sentiment } });
   };
 
   const clearFilters = () => {
@@ -154,6 +373,20 @@ function ProjectDetail() {
   const isAdmin = user?.role === "Admin";
 
   const pageSizeOptions = [10, 20, 50, 100];
+
+  // Show loading while fetching project
+  if (!project && !projectError) {
+    return (
+      <div className="flex">
+        <Sidebar />
+        <div className="ml-64 p-8 w-full">
+          <div className="flex justify-center items-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex">
@@ -169,22 +402,16 @@ function ProjectDetail() {
               <ArrowLeft size={20} />
               Back to Projects
             </button>
-            <h1 className="text-3xl font-bold text-gray-800">
-              {project?.name}
-            </h1>
+            <h1 className="text-3xl font-bold text-gray-800">{project?.name}</h1>
             <p className="text-gray-600">{project?.description}</p>
             <div className="flex items-center gap-4 mt-2 text-sm">
               <span className="flex items-center gap-1 text-gray-500">
                 <Users size={14} />
-                Assigned to:{" "}
-                <span className="font-medium">
-                  {project?.assignedToUsername}
-                </span>
+                Assigned to: <span className="font-medium">{project?.assignedToUsername}</span>
               </span>
               <span className="flex items-center gap-1 text-gray-500">
                 <FileText size={14} />
-                Progress: {project?.validatedCount || 0} /{" "}
-                {project?.totalComments || 0}
+                Progress: {project?.validatedCount || 0} / {project?.totalComments || 0}
               </span>
               <span className="flex items-center gap-1 text-gray-500">
                 <Clock size={14} />
@@ -193,21 +420,48 @@ function ProjectDetail() {
             </div>
           </div>
           <div className="flex gap-2">
+            {/* Upload Button */}
             {isAdmin && (
-              <label className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition flex items-center gap-2 cursor-pointer">
+              <label
+                className={`px-4 py-2 rounded-lg transition flex items-center gap-2 cursor-pointer ${
+                  fileUploaded
+                    ? "bg-gray-400 text-gray-600 cursor-not-allowed"
+                    : "bg-blue-500 text-white hover:bg-blue-600"
+                }`}
+                title={fileUploaded ? "A file has already been uploaded to this project" : ""}
+              >
                 <Upload size={20} />
-                {uploading ? "Uploading..." : "Upload File"}
+                {uploading ? "Uploading..." : fileUploaded ? "File Uploaded" : "Upload File"}
                 <input
                   type="file"
                   accept=".csv,.xls,.xlsx"
                   onChange={handleFileUpload}
                   className="hidden"
-                  disabled={uploading}
+                  disabled={uploading || fileUploaded}
                 />
               </label>
             )}
+
+            {/* Download CSV Button */}
             <button
-              onClick={() => refetch()}
+              onClick={handleDownloadCSV}
+              disabled={downloading || comments.length === 0}
+              className={`px-4 py-2 rounded-lg transition flex items-center gap-2 ${
+                downloading || comments.length === 0
+                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                  : "bg-green-500 text-white hover:bg-green-600"
+              }`}
+            >
+              <Download size={20} />
+              {downloading ? "Downloading..." : "Download CSV"}
+            </button>
+
+            <button
+              onClick={() => {
+                refetchComments();
+                refetchUnvalidated();
+                refetchProject();
+              }}
               className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 transition flex items-center gap-2"
             >
               <RefreshCw size={20} />
@@ -273,10 +527,7 @@ function ProjectDetail() {
               </div>
             </div>
 
-            <button
-              onClick={clearFilters}
-              className="text-red-600 hover:text-red-800 text-sm"
-            >
+            <button onClick={clearFilters} className="text-red-600 hover:text-red-800 text-sm">
               Clear All
             </button>
 
@@ -304,12 +555,12 @@ function ProjectDetail() {
         ) : comments.length === 0 ? (
           <div className="bg-white rounded-lg shadow p-12 text-center">
             <FileText size={64} className="mx-auto text-gray-300 mb-4" />
-            <h3 className="text-xl font-semibold text-gray-600">
-              No Comments Found
-            </h3>
+            <h3 className="text-xl font-semibold text-gray-600">No Comments Found</h3>
             <p className="text-gray-500 mt-2">
               {isAdmin
-                ? "Upload a file to get started."
+                ? fileUploaded
+                  ? "No comments were extracted from the uploaded file."
+                  : "Upload a file to get started."
                 : "No comments available for this project."}
             </p>
           </div>
@@ -341,25 +592,17 @@ function ProjectDetail() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {comments.map((comment, index) => {
-                    const isPending =
-                      validateMutation.isPending &&
-                      validateMutation.variables?.commentId === comment._id;
-                    const isDisabled =
-                      comment.isValidated || !canValidate || isPending;
+                    const isPending = validatingIds.has(comment._id);
+                    const isDisabled = comment.isValidated || !canValidate;
 
-                    // Get temp selections for this comment
-                    const tempLang =
-                      tempSelections[comment._id]?.language || "";
-                    const tempSent =
-                      tempSelections[comment._id]?.sentiment || "";
+                    const tempLang = tempSelections[comment._id]?.language || "";
+                    const tempSent = tempSelections[comment._id]?.sentiment || "";
 
                     return (
                       <tr
                         key={comment._id}
                         className={`${
-                          comment.isValidated
-                            ? "bg-gray-50 opacity-75"
-                            : "hover:bg-gray-50"
+                          comment.isValidated ? "bg-gray-50 opacity-75" : "hover:bg-gray-50"
                         } transition`}
                       >
                         <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
@@ -387,9 +630,7 @@ function ProjectDetail() {
                               }}
                               disabled={isDisabled}
                               className={`px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                                isDisabled
-                                  ? "bg-gray-100 cursor-not-allowed"
-                                  : ""
+                                isDisabled ? "bg-gray-100 cursor-not-allowed" : ""
                               }`}
                             >
                               <option value="">Select</option>
@@ -420,9 +661,7 @@ function ProjectDetail() {
                               }}
                               disabled={isDisabled}
                               className={`px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                                isDisabled
-                                  ? "bg-gray-100 cursor-not-allowed"
-                                  : ""
+                                isDisabled ? "bg-gray-100 cursor-not-allowed" : ""
                               }`}
                             >
                               <option value="">Select</option>
@@ -449,9 +688,7 @@ function ProjectDetail() {
                           {!comment.isValidated && canValidate ? (
                             <button
                               onClick={() => {
-                                const lang = tempLang;
-                                const sent = tempSent;
-                                handleValidate(comment._id, lang, sent);
+                                handleValidate(comment._id, tempLang, tempSent);
                               }}
                               disabled={isPending}
                               className={`px-3 py-1 text-sm rounded-lg transition ${
@@ -460,7 +697,14 @@ function ProjectDetail() {
                                   : "bg-green-500 text-white hover:bg-green-600"
                               }`}
                             >
-                              {isPending ? "..." : "Validate"}
+                              {isPending ? (
+                                <span className="flex items-center gap-1">
+                                  <span className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></span>
+                                  ...
+                                </span>
+                              ) : (
+                                "Validate"
+                              )}
                             </button>
                           ) : (
                             <span className="text-xs text-gray-400">—</span>
@@ -509,13 +753,8 @@ function ProjectDetail() {
                   Page {page} of {pagination.totalPages || 1}
                 </span>
                 <button
-                  onClick={() =>
-                    setPage((p) => Math.min(pagination.totalPages || 1, p + 1))
-                  }
-                  disabled={
-                    page === pagination.totalPages ||
-                    pagination.totalPages === 0
-                  }
+                  onClick={() => setPage((p) => Math.min(pagination.totalPages || 1, p + 1))}
+                  disabled={page === pagination.totalPages || pagination.totalPages === 0}
                   className="p-1 rounded border hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ChevronRight size={18} />
