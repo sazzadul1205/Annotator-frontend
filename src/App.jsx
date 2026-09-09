@@ -3,6 +3,8 @@ import Login from './Pages/auth/Login'
 import Dashboard from './Pages/Dashboard'
 import UserManagement from './Pages/UserManagement'
 import Profile from './Pages/Profile'
+import ProjectManagement from './Pages/ProjectManagement'
+import ProjectDetail from './Pages/ProjectDetail'
 import ProtectedRoute from './components/ProtectedRoute'
 import AdminRoute from './components/AdminRoute'
 
@@ -11,16 +13,32 @@ function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/" element={<Navigate to="/login" replace />} />
+      
+      {/* Protected Routes */}
       <Route path="/dashboard" element={
         <ProtectedRoute>
           <Dashboard />
         </ProtectedRoute>
       } />
+      
       <Route path="/profile" element={
         <ProtectedRoute>
           <Profile />
         </ProtectedRoute>
       } />
+      
+      <Route path="/projects" element={
+        <ProtectedRoute>
+          <ProjectManagement />
+        </ProtectedRoute>
+      } />
+      
+      <Route path="/projects/:projectId" element={
+        <ProtectedRoute>
+          <ProjectDetail />
+        </ProtectedRoute>
+      } />
+      
       <Route path="/users" element={
         <AdminRoute>
           <UserManagement />

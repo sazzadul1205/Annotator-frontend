@@ -25,6 +25,12 @@ const Sidebar = () => {
         >
           Dashboard
         </Link>
+        <Link 
+          to="/projects" 
+          className="block px-4 py-2 rounded hover:bg-gray-700 transition"
+        >
+          Projects
+        </Link>
         {user?.role === 'Admin' && (
           <Link 
             to="/users" 
@@ -38,12 +44,6 @@ const Sidebar = () => {
           className="block px-4 py-2 rounded hover:bg-gray-700 transition"
         >
           Profile
-        </Link>
-        <Link 
-          to="/settings" 
-          className="block px-4 py-2 rounded hover:bg-gray-700 transition"
-        >
-          Settings
         </Link>
       </nav>
 
