@@ -457,12 +457,12 @@ function ProjectDetail() {
               Back to Projects
             </button>
 
-            <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-800 break-words leading-tight">
+            <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-800 wrap-break-word leading-tight">
               {project?.name}
             </h1>
 
             {project?.description && (
-              <p className="text-gray-500 text-xs sm:text-sm mt-0.5 break-words line-clamp-2 sm:line-clamp-none">
+              <p className="text-gray-500 text-xs sm:text-sm mt-0.5 wrap-break-word line-clamp-2 sm:line-clamp-none">
                 {project.description}
               </p>
             )}
@@ -470,7 +470,7 @@ function ProjectDetail() {
             <div className="flex flex-wrap items-center gap-2 sm:gap-4 mt-2 text-xs sm:text-sm">
               <span className="flex items-center gap-1.5 text-gray-500 bg-gray-50 px-2 py-1 rounded-full">
                 <Users size={12} className="sm:text-[14px] text-gray-400" />
-                <span className="truncate max-w-[80px] sm:max-w-[120px] md:max-w-none">
+                <span className="truncate max-w-20 sm:max-w-30 md:max-w-none">
                   {project?.assignedToUsername}
                 </span>
               </span>
