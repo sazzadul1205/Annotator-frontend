@@ -33,7 +33,6 @@ import {
 } from "lucide-react";
 import { useEffect, useState, useRef } from "react";
 
-// Session storage keys
 const UPLOAD_STATE_KEY = "uploadState";
 const DELETE_STATE_KEY = "deleteState";
 
@@ -43,7 +42,6 @@ function ProjectDetail() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  // Pagination & filters
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [showValidated, setShowValidated] = useState(false);
@@ -58,13 +56,9 @@ function ProjectDetail() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
 
-  // Temporary selections for language and sentiment per comment
   const [tempSelections, setTempSelections] = useState({});
-
-  // Use ref to track if state has been restored
   const stateRestored = useRef(false);
 
-  // 🎯 Restore upload state from sessionStorage on page refresh
   useEffect(() => {
     if (stateRestored.current) return;
 
@@ -73,7 +67,6 @@ function ProjectDetail() {
       try {
         const state = JSON.parse(savedUploadState);
         if (state.projectId === projectId && state.uploading) {
-          // Use a timeout to avoid cascade renders
           setTimeout(() => {
             setUploading(true);
           }, 0);
@@ -100,14 +93,12 @@ function ProjectDetail() {
     stateRestored.current = true;
   }, [projectId]);
 
-  // Fetch project details
   const { data: projectData, error: projectError, refetch: refetchProject } = useQuery({
     queryKey: ["project", projectId],
     queryFn: () => getProject(projectId),
     retry: false,
   });
 
-  // Redirect if project not found or deleted
   useEffect(() => {
     if (projectError?.response?.status === 404) {
       sessionStorage.removeItem(UPLOAD_STATE_KEY);
@@ -124,7 +115,6 @@ function ProjectDetail() {
     }
   }, [projectError, navigate]);
 
-  // Build query params for comments
   const queryParams = {
     page,
     limit,
@@ -152,11 +142,8 @@ function ProjectDetail() {
   const comments = commentsData?.data?.data?.comments || [];
   const pagination = commentsData?.data?.data?.pagination || {};
   const unvalidatedCount = unvalidatedData?.data?.data?.unvalidatedCount || 0;
-
-  // Check if file has already been uploaded
   const fileUploaded = !!project?.fileInfo;
 
-  // 📝 Validate single comment - OPTIMISTIC UPDATE without mutation
   const handleValidate = async (commentId, language, sentiment) => {
     if (!language || !sentiment) {
       Swal.fire({
@@ -277,7 +264,6 @@ function ProjectDetail() {
     }
   };
 
-  // 📤 File upload - PERSISTENT STATE
   const handleFileUpload = async (file) => {
     setUploading(true);
 
@@ -349,7 +335,6 @@ function ProjectDetail() {
     }
   };
 
-  // 🗑️ Delete project with persistent state
   const handleDeleteProject = async () => {
     const result = await Swal.fire({
       title: "Are you sure?",
@@ -403,7 +388,6 @@ function ProjectDetail() {
     }
   };
 
-  // 📥 Download CSV
   const handleDownloadCSV = async () => {
     setDownloading(true);
     try {
@@ -445,14 +429,13 @@ function ProjectDetail() {
 
   const pageSizeOptions = [10, 20, 50, 100];
 
-  // Show loading while fetching project
   if (!project && !projectError) {
     return (
       <div className="flex">
         <Sidebar />
-        <div className="ml-64 p-8 w-full">
+        <div className="flex-1 md:ml-64 p-4 sm:p-6 md:p-8 w-full">
           <div className="flex justify-center items-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+            <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-b-2 border-blue-500"></div>
           </div>
         </div>
       </div>
@@ -462,59 +445,100 @@ function ProjectDetail() {
   return (
     <div className="flex">
       <Sidebar />
-      <div className="ml-64 p-8 w-full">
+      <div className="flex-1 md:ml-64 p-3 sm:p-4 md:p-8 w-full min-h-screen overflow-x-hidden">
         {/* Header */}
-        <div className="flex justify-between items-start mb-6">
-          <div>
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 lg:gap-0 mb-4 sm:mb-6">
+          <div className="w-full lg:w-auto min-w-0">
             <button
               onClick={() => navigate("/projects")}
-              className="text-blue-600 hover:text-blue-800 transition flex items-center gap-1 mb-2 text-sm"
+              className="text-blue-600 hover:text-blue-800 transition flex items-center gap-1.5 mb-2 text-xs sm:text-sm font-medium group"
             >
-              <ArrowLeft size={16} />
-              Back
+              <ArrowLeft size={14} className="sm:text-[16px] transition-transform group-hover:-translate-x-0.5" />
+              Back to Projects
             </button>
-            <h1 className="text-2xl font-bold text-gray-800">{project?.name}</h1>
-            <p className="text-gray-600 text-sm">{project?.description}</p>
-            <div className="flex items-center gap-4 mt-2 text-sm">
-              <span className="flex items-center gap-1 text-gray-500">
-                <Users size={14} />
-                {project?.assignedToUsername}
+
+            <h1 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-800 break-words leading-tight">
+              {project?.name}
+            </h1>
+
+            {project?.description && (
+              <p className="text-gray-500 text-xs sm:text-sm mt-0.5 break-words line-clamp-2 sm:line-clamp-none">
+                {project.description}
+              </p>
+            )}
+
+            <div className="flex flex-wrap items-center gap-2 sm:gap-4 mt-2 text-xs sm:text-sm">
+              <span className="flex items-center gap-1.5 text-gray-500 bg-gray-50 px-2 py-1 rounded-full">
+                <Users size={12} className="sm:text-[14px] text-gray-400" />
+                <span className="truncate max-w-[80px] sm:max-w-[120px] md:max-w-none">
+                  {project?.assignedToUsername}
+                </span>
               </span>
-              <span className="flex items-center gap-1 text-gray-500">
-                <FileText size={14} />
-                {project?.validatedCount || 0}/{project?.totalComments || 0}
+              <span className="flex items-center gap-1.5 text-gray-500 bg-gray-50 px-2 py-1 rounded-full">
+                <FileText size={12} className="sm:text-[14px] text-gray-400" />
+                <span className="font-medium">{project?.validatedCount || 0}</span>
+                <span className="text-gray-400">/</span>
+                <span>{project?.totalComments || 0}</span>
               </span>
-              <span className="flex items-center gap-1 text-gray-500">
-                <Clock size={14} />
-                {unvalidatedCount} pending
+              <span className="flex items-center gap-1.5 text-gray-500 bg-gray-50 px-2 py-1 rounded-full">
+                <Clock size={12} className="sm:text-[14px] text-gray-400" />
+                <span className="font-medium text-yellow-600">{unvalidatedCount}</span>
+                <span className="hidden xs:inline">pending</span>
               </span>
+              {project?.status && (
+                <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${project.status === 'completed'
+                  ? 'bg-green-100 text-green-700'
+                  : project.status === 'in_progress'
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'bg-yellow-100 text-yellow-700'
+                  }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${project.status === 'completed'
+                    ? 'bg-green-500'
+                    : project.status === 'in_progress'
+                      ? 'bg-blue-500'
+                      : 'bg-yellow-500'
+                    }`} />
+                  {project.status.replace('_', ' ')}
+                </span>
+              )}
             </div>
           </div>
-          <div className="flex gap-2 flex-wrap">
-            {/* Upload Button - Opens Modal */}
+
+          {/* Action Buttons Group */}
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 w-full lg:w-auto mt-2 lg:mt-0">
+            {/* Upload Button */}
             {isAdmin && (
               <button
                 onClick={() => setShowUploadModal(true)}
                 disabled={fileUploaded || uploading}
-                className={`px-3 py-1.5 text-sm rounded-lg transition flex items-center gap-1.5 ${fileUploaded || uploading
-                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                  : "bg-blue-500 text-white hover:bg-blue-600"
-                  }`}
+                className={`
+          relative flex-1 sm:flex-none px-3 sm:px-4 py-2 sm:py-2.5 
+          text-xs sm:text-sm font-medium rounded-xl 
+          transition-all duration-200 
+          flex items-center justify-center gap-1.5 sm:gap-2
+          ${fileUploaded || uploading
+                    ? "bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200"
+                    : "bg-blue-600 text-white hover:bg-blue-700 hover:shadow-md active:scale-[0.98] shadow-sm"
+                  }
+        `}
               >
                 {uploading ? (
                   <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Uploading...
+                    <Loader2 size={14} className="sm:text-[16px] animate-spin" />
+                    <span className="hidden xs:inline">Uploading...</span>
+                    <span className="xs:hidden">...</span>
                   </>
                 ) : fileUploaded ? (
                   <>
-                    <CheckCircle size={16} />
-                    Uploaded
+                    <CheckCircle size={14} className="sm:text-[16px]" />
+                    <span className="hidden xs:inline">File Uploaded</span>
+                    <span className="xs:hidden">✓</span>
                   </>
                 ) : (
                   <>
-                    <Upload size={16} />
-                    Upload
+                    <Upload size={14} className="sm:text-[16px]" />
+                    <span className="hidden xs:inline">Upload File</span>
+                    <span className="xs:hidden">Upload</span>
                   </>
                 )}
               </button>
@@ -525,72 +549,88 @@ function ProjectDetail() {
               <button
                 onClick={handleDownloadCSV}
                 disabled={downloading || comments.length === 0}
-                className={`px-3 py-1.5 text-sm rounded-lg transition flex items-center gap-1.5 ${downloading || comments.length === 0
-                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                  : "bg-green-500 text-white hover:bg-green-600"
-                  }`}
+                className={`
+          relative flex-1 sm:flex-none px-3 sm:px-4 py-2 sm:py-2.5 
+          text-xs sm:text-sm font-medium rounded-xl 
+          transition-all duration-200 
+          flex items-center justify-center gap-1.5 sm:gap-2
+          ${downloading || comments.length === 0
+                    ? "bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200"
+                    : "bg-green-600 text-white hover:bg-green-700 hover:shadow-md active:scale-[0.98] shadow-sm"
+                  }
+        `}
               >
-                <Download size={16} />
-                {downloading ? "Downloading..." : "CSV"}
+                <Download size={14} className="sm:text-[16px]" />
+                <span className="hidden xs:inline">
+                  {downloading ? "Downloading..." : "Export CSV"}
+                </span>
+                <span className="xs:hidden">CSV</span>
               </button>
             )}
 
-            {/* Delete Project Button */}
+            {/* Delete Button */}
             {isAdmin && (
               <button
                 onClick={handleDeleteProject}
                 disabled={isDeleting}
-                className={`px-3 py-1.5 text-sm rounded-lg transition flex items-center gap-1.5 ${isDeleting
-                  ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                  : "bg-red-500 text-white hover:bg-red-600"
-                  }`}
+                className={`
+          relative flex-1 sm:flex-none px-3 sm:px-4 py-2 sm:py-2.5 
+          text-xs sm:text-sm font-medium rounded-xl 
+          transition-all duration-200 
+          flex items-center justify-center gap-1.5 sm:gap-2
+          ${isDeleting
+                    ? "bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200"
+                    : "bg-red-600 text-white hover:bg-red-700 hover:shadow-md active:scale-[0.98] shadow-sm"
+                  }
+        `}
               >
                 {isDeleting ? (
                   <>
-                    <Loader2 size={16} className="animate-spin" />
-                    Deleting...
+                    <Loader2 size={14} className="sm:text-[16px] animate-spin" />
+                    <span className="hidden xs:inline">Deleting...</span>
+                    <span className="xs:hidden">...</span>
                   </>
                 ) : (
                   <>
-                    <Trash2 size={16} />
-                    Delete
+                    <Trash2 size={14} className="sm:text-[16px]" />
+                    <span className="hidden xs:inline">Delete</span>
                   </>
                 )}
               </button>
             )}
 
+            {/* Refresh Button */}
             <button
               onClick={() => {
                 refetchComments();
                 refetchUnvalidated();
                 refetchProject();
               }}
-              className="bg-gray-200 text-gray-700 px-3 py-1.5 text-sm rounded-lg hover:bg-gray-300 transition flex items-center gap-1.5"
+              className=" flex-1 sm:flex-none px-3 sm:px-4 py-2 sm:py-2.5  text-xs sm:text-sm font-medium rounded-xl  transition-all duration-200  flex items-center justify-center gap-1.5 sm:gap-2 bg-gray-100 text-gray-700 hover:bg-gray-200 hover:shadow-sm active:scale-[0.98] border border-gray-200"
             >
-              <RefreshCw size={16} />
-              Refresh
+              <RefreshCw size={14} className="sm:text-[16px]" />
+              <span className="hidden xs:inline">Refresh</span>
             </button>
           </div>
         </div>
 
         {/* Filters & Controls */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Filter Label */}
-            <div className="flex items-center gap-2 pr-2 border-r border-gray-200">
-              <Filter size={16} className="text-blue-500" />
-              <span className="text-sm font-medium text-gray-700">Filters</span>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4 mb-4 sm:mb-6 overflow-x-auto">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-1 sm:gap-2 pr-1 sm:pr-2 border-r border-gray-200 shrink-0">
+              <Filter size={14} className="sm:text-[16px] text-blue-500" />
+              <span className="text-xs sm:text-sm font-medium text-gray-700 hidden xs:inline">Filters</span>
             </div>
 
-            {/* Language Filter */}
-            <div className="relative">
+            <div className="flex flex-wrap gap-2 w-full sm:w-auto">
               <select
                 value={filters.language}
                 onChange={(e) => {
                   setFilters({ ...filters, language: e.target.value });
                   setPage(1);
                 }}
-                className="appearance-none px-3 py-1.5 pr-8 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent hover:bg-white transition-colors cursor-pointer min-w-32.5"
+                className="flex-1 sm:flex-none px-2 sm:px-3 py-1.5 sm:py-1.5 pr-6 sm:pr-8 bg-gray-50 border border-gray-200 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent hover:bg-white transition-colors cursor-pointer 
+                min-w-22.5 sm:min-w-32.5 appearance-none"
               >
                 <option value="">All Languages</option>
                 <option value="Bangla">Bangla</option>
@@ -599,42 +639,25 @@ function ProjectDetail() {
                 <option value="Emoji">Emoji</option>
                 <option value="Other">Other</option>
               </select>
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
-                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
-            </div>
 
-            {/* Sentiment Filter */}
-            <div className="relative">
               <select
                 value={filters.sentiment}
                 onChange={(e) => {
                   setFilters({ ...filters, sentiment: e.target.value });
                   setPage(1);
                 }}
-                className="appearance-none px-3 py-1.5 pr-8 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent hover:bg-white transition-colors cursor-pointer min-w-32.5"
+                className="flex-1 sm:flex-none px-2 sm:px-3 py-1.5 sm:py-1.5 pr-6 sm:pr-8 bg-gray-50 border border-gray-200 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent hover:bg-white transition-colors cursor-pointer min-w-22.5 sm:min-w-32.5 appearance-none"
               >
                 <option value="">All Sentiments</option>
                 <option value="Positive">Positive</option>
                 <option value="Negative">Negative</option>
                 <option value="Neutral">Neutral</option>
               </select>
-              <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
-                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </div>
             </div>
 
-            {/* Search Input */}
-            <div className="flex-1 min-w-50">
+            <div className="flex-1 min-w-25 sm:min-w-50 w-full sm:w-auto">
               <div className="relative">
-                <Search
-                  size={16}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-                />
+                <Search size={14} className="sm:text-[16px] absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input
                   type="text"
                   placeholder="Search comments..."
@@ -643,7 +666,7 @@ function ProjectDetail() {
                     setFilters({ ...filters, search: e.target.value });
                     setPage(1);
                   }}
-                  className="w-full pl-9 pr-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent hover:bg-white transition-colors placeholder:text-gray-400"
+                  className="w-full pl-8 sm:pl-9 pr-6 sm:pr-8 py-1.5 sm:py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent hover:bg-white transition-colors placeholder:text-gray-400"
                 />
                 {filters.search && (
                   <button
@@ -653,7 +676,7 @@ function ProjectDetail() {
                     }}
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
@@ -661,44 +684,41 @@ function ProjectDetail() {
               </div>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex items-center gap-2">
-              {/* Clear Filters Button */}
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <button
                 onClick={clearFilters}
-                className="px-3 py-1.5 text-sm text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1.5"
+                className="px-2 sm:px-3 py-1.5 text-xs sm:text-sm text-gray-600 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1 sm:gap-1.5"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
-                Clear
+                <span className="hidden xs:inline">Clear</span>
               </button>
 
-              <div className="w-px h-6 bg-gray-200"></div>
+              <div className="w-px h-6 bg-gray-200 hidden xs:block"></div>
 
-              {/* Toggle Validated Button */}
               <button
                 onClick={() => setShowValidated(!showValidated)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${showValidated
+                className={`flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all duration-200 ${showValidated
                   ? "bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200"
                   : "bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200"
                   }`}
               >
                 {showValidated ? (
-                  <Eye size={15} className="text-blue-500" />
+                  <Eye size={13} className="sm:text-[15px] text-blue-500" />
                 ) : (
-                  <EyeOff size={15} className="text-gray-400" />
+                  <EyeOff size={13} className="sm:text-[15px] text-gray-400" />
                 )}
-                {showValidated ? "Show Validated" : "Hide Validated"}
+                <span className="hidden xs:inline">{showValidated ? "Show Validated" : "Hide Validated"}</span>
+                <span className="xs:hidden">{showValidated ? "Validated" : "Hide"}</span>
               </button>
 
-              {/* Active Filters Count Badge */}
               {(filters.language || filters.sentiment || filters.search) && (
-                <span className="inline-flex items-center justify-center px-2 py-0.5 text-xs font-medium text-blue-600 bg-blue-100 rounded-full">
+                <span className="inline-flex items-center justify-center px-1.5 sm:px-2 py-0.5 text-[10px] sm:text-xs font-medium text-blue-600 bg-blue-100 rounded-full">
                   {[
-                    filters.language && "Lang",
-                    filters.sentiment && "Sent",
-                    filters.search && "Search",
+                    filters.language && "L",
+                    filters.sentiment && "S",
+                    filters.search && "Q",
                   ].filter(Boolean).length}
                 </span>
               )}
@@ -707,11 +727,11 @@ function ProjectDetail() {
 
           {/* Active Filters Display */}
           {(filters.language || filters.sentiment || filters.search) && (
-            <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-gray-100">
-              <span className="text-xs text-gray-500 mr-1">Active filters:</span>
+            <div className="flex flex-wrap items-center gap-1.5 mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-gray-100">
+              <span className="text-[10px] sm:text-xs text-gray-500 mr-1">Active:</span>
               {filters.language && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 text-xs rounded-md border border-blue-200">
-                  Language: {filters.language}
+                <span className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] sm:text-xs rounded-md border border-blue-200">
+                  Lang: {filters.language}
                   <button
                     onClick={() => {
                       setFilters({ ...filters, language: "" });
@@ -719,15 +739,15 @@ function ProjectDetail() {
                     }}
                     className="hover:text-blue-900"
                   >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 </span>
               )}
               {filters.sentiment && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-700 text-xs rounded-md border border-purple-200">
-                  Sentiment: {filters.sentiment}
+                <span className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 bg-purple-50 text-purple-700 text-[10px] sm:text-xs rounded-md border border-purple-200">
+                  Sent: {filters.sentiment}
                   <button
                     onClick={() => {
                       setFilters({ ...filters, sentiment: "" });
@@ -735,23 +755,23 @@ function ProjectDetail() {
                     }}
                     className="hover:text-purple-900"
                   >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
                 </span>
               )}
               {filters.search && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-50 text-green-700 text-xs rounded-md border border-green-200">
-                  Search: {filters.search}
+                <span className="inline-flex items-center gap-1 px-1.5 sm:px-2 py-0.5 bg-green-50 text-green-700 text-[10px] sm:text-xs rounded-md border border-green-200 max-w-30 sm:max-w-none">
+                  <span className="truncate">"{filters.search}"</span>
                   <button
                     onClick={() => {
                       setFilters({ ...filters, search: "" });
                       setPage(1);
                     }}
-                    className="hover:text-green-900"
+                    className="hover:text-green-900 shrink-0"
                   >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-2.5 h-2.5 sm:w-3 sm:h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
@@ -759,7 +779,7 @@ function ProjectDetail() {
               )}
               <button
                 onClick={clearFilters}
-                className="text-xs text-red-500 hover:text-red-700 ml-1"
+                className="text-[10px] sm:text-xs text-red-500 hover:text-red-700 ml-1"
               >
                 Clear all
               </button>
@@ -769,20 +789,20 @@ function ProjectDetail() {
 
         {/* Table */}
         {isLoading ? (
-          <div className="flex justify-center items-center py-16">
+          <div className="flex justify-center items-center py-12 sm:py-16">
             <div className="flex flex-col items-center gap-3">
-              <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-500 border-t-transparent"></div>
-              <p className="text-sm text-gray-500">Loading comments...</p>
+              <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-4 border-blue-500 border-t-transparent"></div>
+              <p className="text-xs sm:text-sm text-gray-500">Loading comments...</p>
             </div>
           </div>
         ) : comments.length === 0 ? (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-16 text-center">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-8 sm:p-16 text-center">
             <div className="flex flex-col items-center">
-              <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mb-4">
-                <FileText size={48} className="text-gray-300" />
+              <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gray-50 rounded-full flex items-center justify-center mb-3 sm:mb-4">
+                <FileText size={32} className="sm:text-[48px] text-gray-300" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-700">No Comments Found</h3>
-              <p className="text-gray-500 text-sm mt-2 max-w-md">
+              <h3 className="text-base sm:text-lg font-semibold text-gray-700">No Comments Found</h3>
+              <p className="text-gray-500 text-xs sm:text-sm mt-2 max-w-md">
                 {isAdmin
                   ? fileUploaded
                     ? "No comments were extracted from the uploaded file."
@@ -792,17 +812,17 @@ function ProjectDetail() {
                   : "No comments available for this project."}
               </p>
               {uploading && (
-                <div className="mt-4 flex items-center gap-2">
-                  <Loader2 size={20} className="animate-spin text-blue-500" />
-                  <span className="text-sm text-gray-500">Processing your file...</span>
+                <div className="mt-3 sm:mt-4 flex items-center gap-2">
+                  <Loader2 size={16} className="sm:text-[20px] animate-spin text-blue-500" />
+                  <span className="text-xs sm:text-sm text-gray-500">Processing your file...</span>
                 </div>
               )}
               {!fileUploaded && isAdmin && !uploading && (
                 <button
                   onClick={() => setShowUploadModal(true)}
-                  className="mt-6 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition flex items-center gap-2"
+                  className="mt-4 sm:mt-6 px-3 sm:px-4 py-1.5 sm:py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition flex items-center gap-2 text-sm"
                 >
-                  <Upload size={16} />
+                  <Upload size={14} className="sm:text-[16px]" />
                   Upload File
                 </button>
               )}
@@ -814,25 +834,25 @@ function ProjectDetail() {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-12">
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider w-8 sm:w-12">
                       #
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider min-w-30">
                       <div className="flex items-center gap-1">
-                        <FileText size={14} />
+                        <FileText size={12} className="sm:text-[14px]" />
                         Comment
                       </div>
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-36">
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider w-28 sm:w-36">
                       Language
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-36">
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider w-28 sm:w-36">
                       Sentiment
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider w-20 sm:w-24">
                       Status
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
+                    <th className="px-2 sm:px-4 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider w-16 sm:w-24">
                       Action
                     </th>
                   </tr>
@@ -853,20 +873,20 @@ function ProjectDetail() {
                           : "hover:bg-blue-50/30"
                           }`}
                       >
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-400 font-medium">
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 whitespace-nowrap text-[10px] sm:text-sm text-gray-400 font-medium">
                           {(page - 1) * limit + index + 1}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-800 max-w-md wrap-break-word">
-                          <div className="flex items-start gap-2">
-                            <span className="text-gray-400 text-xs mt-0.5">"</span>
-                            <span>{comment.text}</span>
-                            <span className="text-gray-400 text-xs mt-0.5">"</span>
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 text-xs sm:text-sm text-gray-800 max-w-37.5 sm:max-w-xs md:max-w-md wrap-break-word">
+                          <div className="flex items-start gap-1 sm:gap-2">
+                            <span className="text-gray-400 text-[8px] sm:text-xs mt-0.5">"</span>
+                            <span className="wrap-break-word line-clamp-3 sm:line-clamp-none">{comment.text}</span>
+                            <span className="text-gray-400 text-[8px] sm:text-xs mt-0.5">"</span>
                           </div>
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 whitespace-nowrap">
                           {comment.isValidated ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 text-blue-700 text-sm font-medium rounded-md">
-                              <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
+                            <span className="inline-flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2.5 py-0.5 sm:py-1 bg-blue-50 text-blue-700 text-[10px] sm:text-sm font-medium rounded-md">
+                              <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-blue-500 rounded-full"></span>
                               {comment.language}
                             </span>
                           ) : (
@@ -882,7 +902,7 @@ function ProjectDetail() {
                                 }));
                               }}
                               disabled={isDisabled}
-                              className={`w-full px-2.5 py-1.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition ${isDisabled
+                              className={`w-full px-1.5 sm:px-2.5 py-1 sm:py-1.5 border rounded-lg text-[10px] sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition ${isDisabled
                                 ? "bg-gray-100 cursor-not-allowed text-gray-400 border-gray-200"
                                 : "bg-white border-gray-200 hover:border-blue-300"
                                 }`}
@@ -896,15 +916,15 @@ function ProjectDetail() {
                             </select>
                           )}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 whitespace-nowrap">
                           {comment.isValidated ? (
-                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-sm font-medium rounded-md ${comment.sentiment === 'Positive'
+                            <span className={`inline-flex items-center gap-1 sm:gap-1.5 px-1.5 sm:px-2.5 py-0.5 sm:py-1 text-[10px] sm:text-sm font-medium rounded-md ${comment.sentiment === 'Positive'
                               ? 'bg-green-50 text-green-700'
                               : comment.sentiment === 'Negative'
                                 ? 'bg-red-50 text-red-700'
                                 : 'bg-gray-50 text-gray-700'
                               }`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${comment.sentiment === 'Positive'
+                              <span className={`w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full ${comment.sentiment === 'Positive'
                                 ? 'bg-green-500'
                                 : comment.sentiment === 'Negative'
                                   ? 'bg-red-500'
@@ -925,7 +945,7 @@ function ProjectDetail() {
                                 }));
                               }}
                               disabled={isDisabled}
-                              className={`w-full px-2.5 py-1.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition ${isDisabled
+                              className={`w-full px-1.5 sm:px-2.5 py-1 sm:py-1.5 border rounded-lg text-[10px] sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition ${isDisabled
                                 ? "bg-gray-100 cursor-not-allowed text-gray-400 border-gray-200"
                                 : "bg-white border-gray-200 hover:border-blue-300"
                                 }`}
@@ -937,50 +957,53 @@ function ProjectDetail() {
                             </select>
                           )}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 whitespace-nowrap">
                           {comment.isValidated ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-100 px-2.5 py-1 rounded-full">
-                              <CheckCircle size={13} className="text-green-500" />
-                              Validated
+                            <span className="inline-flex items-center gap-1 sm:gap-1.5 text-[8px] sm:text-xs font-medium text-green-700 bg-green-100 px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full">
+                              <CheckCircle size={10} className="sm:text-[13px] text-green-500" />
+                              <span className="hidden xs:inline">Validated</span>
+                              <span className="xs:hidden">✓</span>
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-yellow-700 bg-yellow-100 px-2.5 py-1 rounded-full">
-                              <Clock size={13} className="text-yellow-500" />
-                              Pending
+                            <span className="inline-flex items-center gap-1 sm:gap-1.5 text-[8px] sm:text-xs font-medium text-yellow-700 bg-yellow-100 px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-full">
+                              <Clock size={10} className="sm:text-[13px] text-yellow-500" />
+                              <span className="">Pending</span>
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
+                        <td className="px-2 sm:px-4 py-2 sm:py-3 whitespace-nowrap">
                           {!comment.isValidated && canValidate ? (
                             <button
                               onClick={() => {
                                 handleValidate(comment._id, tempLang, tempSent);
                               }}
                               disabled={isPending || !tempLang || !tempSent}
-                              className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-all duration-200 flex items-center gap-1.5 ${isPending || !tempLang || !tempSent
+                              className={`px-2 sm:px-3 py-1 sm:py-1.5 text-[8px] sm:text-xs font-medium rounded-lg transition-all duration-200 flex items-center gap-1 sm:gap-1.5 ${isPending || !tempLang || !tempSent
                                 ? "bg-gray-100 text-gray-400 cursor-not-allowed"
                                 : "bg-green-500 text-white hover:bg-green-600 shadow-sm hover:shadow"
                                 }`}
                             >
                               {isPending ? (
                                 <>
-                                  <span className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></span>
-                                  Saving...
+                                  <span className="animate-spin rounded-full h-2 w-2 sm:h-3 sm:w-3 border-2 border-white border-t-transparent"></span>
+                                  <span className="hidden xs:inline">Saving...</span>
+                                  <span className="xs:hidden">...</span>
                                 </>
                               ) : (
                                 <>
-                                  <CheckCircle size={13} />
-                                  Save
+                                  <CheckCircle size={10} className="sm:text-[13px]" />
+                                  <span className="hidden xs:inline">Save</span>
+                                  <span className="xs:hidden">✓</span>
                                 </>
                               )}
                             </button>
                           ) : comment.isValidated ? (
-                            <span className="text-xs text-gray-400 flex items-center gap-1">
-                              <CheckCircle size={13} className="text-gray-300" />
-                              Done
+                            <span className="text-[8px] sm:text-xs text-gray-400 flex items-center gap-1">
+                              <CheckCircle size={10} className="sm:text-[13px] text-gray-300" />
+                              <span className="hidden xs:inline">Done</span>
                             </span>
                           ) : (
-                            <span className="text-xs text-gray-400">—</span>
+                            <span className="text-[8px] sm:text-xs text-gray-400">—</span>
                           )}
                         </td>
                       </tr>
@@ -991,16 +1014,16 @@ function ProjectDetail() {
             </div>
 
             {/* Pagination */}
-            <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <span className="text-sm text-gray-600">Rows per page:</span>
+            <div className="px-2 sm:px-4 py-2 sm:py-3 bg-gray-50 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                <span className="text-[10px] sm:text-sm text-gray-600">Rows:</span>
                 <select
                   value={limit}
                   onChange={(e) => {
                     setLimit(Number(e.target.value));
                     setPage(1);
                   }}
-                  className="border border-gray-200 rounded-lg px-2.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                  className="border border-gray-200 rounded-lg px-1.5 sm:px-2.5 py-0.5 sm:py-1 text-[10px] sm:text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                 >
                   {pageSizeOptions.map((size) => (
                     <option key={size} value={size}>
@@ -1008,32 +1031,35 @@ function ProjectDetail() {
                     </option>
                   ))}
                 </select>
-                <span className="text-sm text-gray-600">
+                <span className="text-[10px] sm:text-sm text-gray-600 hidden xs:inline">
                   {pagination.total
                     ? `${(page - 1) * limit + 1}-${Math.min(page * limit, pagination.total)} of ${pagination.total}`
                     : "0 entries"}
                 </span>
+                <span className="text-[10px] sm:text-sm text-gray-600 xs:hidden">
+                  {pagination.total || 0}
+                </span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 sm:gap-2">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page === 1}
-                  className="p-1.5 rounded-lg border border-gray-200 hover:bg-white transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="p-1 sm:p-1.5 rounded-lg border border-gray-200 hover:bg-white transition disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  <ChevronLeft size={16} className="text-gray-600" />
+                  <ChevronLeft size={14} className="sm:text-[16px] text-gray-600" />
                 </button>
                 <div className="flex items-center gap-1">
-                  <span className="text-sm text-gray-600">
-                    Page <span className="font-medium text-gray-800">{page}</span> of{" "}
-                    <span className="font-medium text-gray-800">{pagination.totalPages || 1}</span>
+                  <span className="text-[10px] sm:text-sm text-gray-600">
+                    <span className="font-medium text-gray-800">{page}</span>
+                    <span className="hidden xs:inline"> of <span className="font-medium text-gray-800">{pagination.totalPages || 1}</span></span>
                   </span>
                 </div>
                 <button
                   onClick={() => setPage((p) => Math.min(pagination.totalPages || 1, p + 1))}
                   disabled={page === pagination.totalPages || pagination.totalPages === 0}
-                  className="p-1.5 rounded-lg border border-gray-200 hover:bg-white transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="p-1 sm:p-1.5 rounded-lg border border-gray-200 hover:bg-white transition disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  <ChevronRight size={16} className="text-gray-600" />
+                  <ChevronRight size={14} className="sm:text-[16px] text-gray-600" />
                 </button>
               </div>
             </div>
