@@ -39,6 +39,11 @@ function ProjectManagement() {
     enabled: user?.role === "Admin",
   });
 
+  // Handle project creation success - refetch projects
+  const handleProjectCreated = async () => {
+    await refetch();
+  };
+
   // Direct delete function – no mutation
   const handleDelete = async (projectId, projectName) => {
     const result = await Swal.fire({
@@ -247,6 +252,7 @@ function ProjectManagement() {
           <CreateProjectModal
             onClose={() => setShowCreateModal(false)}
             users={users}
+            onProjectCreated={handleProjectCreated}
           />
         )}
       </div>

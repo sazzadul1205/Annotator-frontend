@@ -7,6 +7,7 @@ import {
   validateComment,
   getUnvalidatedCount,
   downloadCommentsCSV,
+  deleteProject,
 } from "../services/api";
 import Sidebar from "../components/Sidebar";
 import { useAuth } from "../hooks/useAuth";
@@ -26,8 +27,14 @@ import {
   Eye,
   EyeOff,
   Download,
+  Trash2,
+  Loader2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+
+// Session storage keys
+const UPLOAD_STATE_KEY = "uploadState";
+const DELETE_STATE_KEY = "deleteState";
 
 function ProjectDetail() {
   const { projectId } = useParams();
@@ -47,9 +54,49 @@ function ProjectDetail() {
   const [uploading, setUploading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [validatingIds, setValidatingIds] = useState(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Temporary selections for language and sentiment per comment
   const [tempSelections, setTempSelections] = useState({});
+
+  // Use ref to track if state has been restored
+  const stateRestored = useRef(false);
+
+  // 🎯 Restore upload state from sessionStorage on page refresh
+  useEffect(() => {
+    if (stateRestored.current) return;
+    
+    const savedUploadState = sessionStorage.getItem(UPLOAD_STATE_KEY);
+    if (savedUploadState) {
+      try {
+        const state = JSON.parse(savedUploadState);
+        if (state.projectId === projectId && state.uploading) {
+          // Use a timeout to avoid cascade renders
+          setTimeout(() => {
+            setUploading(true);
+          }, 0);
+        }
+      } catch (e) {
+        console.error("Error parsing upload state:", e);
+      }
+    }
+
+    const savedDeleteState = sessionStorage.getItem(DELETE_STATE_KEY);
+    if (savedDeleteState) {
+      try {
+        const state = JSON.parse(savedDeleteState);
+        if (state.projectId === projectId && state.deleting) {
+          setTimeout(() => {
+            setIsDeleting(true);
+          }, 0);
+        }
+      } catch (e) {
+        console.error("Error parsing delete state:", e);
+      }
+    }
+
+    stateRestored.current = true;
+  }, [projectId]);
 
   // Fetch project details
   const { data: projectData, error: projectError, refetch: refetchProject } = useQuery({
@@ -61,6 +108,9 @@ function ProjectDetail() {
   // Redirect if project not found or deleted
   useEffect(() => {
     if (projectError?.response?.status === 404) {
+      sessionStorage.removeItem(UPLOAD_STATE_KEY);
+      sessionStorage.removeItem(DELETE_STATE_KEY);
+      
       Swal.fire({
         icon: "error",
         title: "Project Not Found",
@@ -116,10 +166,8 @@ function ProjectDetail() {
       return;
     }
 
-    // Add to validating set to show loading state
     setValidatingIds((prev) => new Set(prev).add(commentId));
 
-    // Get current data for rollback
     const previousComments = queryClient.getQueryData([
       "comments",
       projectId,
@@ -131,8 +179,6 @@ function ProjectDetail() {
     const previousProject = queryClient.getQueryData(["project", projectId]);
     const previousUnvalidated = queryClient.getQueryData(["unvalidated-count", projectId]);
 
-    // 🔥 OPTIMISTIC UPDATE - Update UI instantly
-    // 1. Update comment in cache
     queryClient.setQueryData(
       ["comments", projectId, page, limit, showValidated, filters],
       (old) => {
@@ -162,7 +208,6 @@ function ProjectDetail() {
       }
     );
 
-    // 2. Update unvalidated count
     queryClient.setQueryData(["unvalidated-count", projectId], (old) => {
       if (!old) return old;
       return {
@@ -176,7 +221,6 @@ function ProjectDetail() {
       };
     });
 
-    // 3. Update project progress
     queryClient.setQueryData(["project", projectId], (old) => {
       if (!old) return old;
       return {
@@ -191,22 +235,17 @@ function ProjectDetail() {
       };
     });
 
-    // Clear temp selections
     setTempSelections((prev) => {
       const newState = { ...prev };
       delete newState[commentId];
       return newState;
     });
 
-    // 🚀 Make the actual API call
     try {
       await validateComment(commentId, { language, sentiment });
-      // Success - no need to do anything, UI already updated
     } catch (err) {
-      // ❌ FAILURE - Rollback all optimistic updates
       console.error("Validation error:", err);
 
-      // Restore previous state
       if (previousComments) {
         queryClient.setQueryData(
           ["comments", projectId, page, limit, showValidated, filters],
@@ -220,7 +259,6 @@ function ProjectDetail() {
         queryClient.setQueryData(["unvalidated-count", projectId], previousUnvalidated);
       }
 
-      // Show error alert
       const errorMessage = err.response?.data?.error || "Failed to validate comment";
       Swal.fire({
         icon: "error",
@@ -229,7 +267,6 @@ function ProjectDetail() {
         confirmButtonColor: "#3B82F6",
       });
     } finally {
-      // Remove from validating set
       setValidatingIds((prev) => {
         const newSet = new Set(prev);
         newSet.delete(commentId);
@@ -238,7 +275,7 @@ function ProjectDetail() {
     }
   };
 
-  // 📤 File upload - OPTIMISTIC UPDATE without mutation
+  // 📤 File upload - PERSISTENT STATE
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -268,11 +305,16 @@ function ProjectDetail() {
     }
 
     setUploading(true);
+    
+    sessionStorage.setItem(UPLOAD_STATE_KEY, JSON.stringify({
+      projectId,
+      uploading: true,
+      fileName: file.name,
+      timestamp: Date.now()
+    }));
 
-    // Get previous state for rollback
     const previousProject = queryClient.getQueryData(["project", projectId]);
 
-    // 🔥 OPTIMISTIC UPDATE - Show file as uploaded instantly
     queryClient.setQueryData(["project", projectId], (old) => {
       if (!old) return old;
       return {
@@ -292,11 +334,11 @@ function ProjectDetail() {
       };
     });
 
-    // 🚀 Make the actual API call
     try {
       const response = await uploadFileToProject(projectId, file);
       
-      // Success - refetch to get real data
+      sessionStorage.removeItem(UPLOAD_STATE_KEY);
+      
       await queryClient.invalidateQueries({ queryKey: ["comments", projectId] });
       await queryClient.invalidateQueries({ queryKey: ["project", projectId] });
       await queryClient.invalidateQueries({ queryKey: ["unvalidated-count", projectId] });
@@ -312,8 +354,8 @@ function ProjectDetail() {
         showConfirmButton: false,
       });
     } catch (err) {
-      // ❌ FAILURE - Rollback
       console.error("Upload error:", err);
+      sessionStorage.removeItem(UPLOAD_STATE_KEY);
 
       if (previousProject) {
         queryClient.setQueryData(["project", projectId], previousProject);
@@ -328,6 +370,60 @@ function ProjectDetail() {
       });
     } finally {
       setUploading(false);
+    }
+  };
+
+  // 🗑️ Delete project with persistent state
+  const handleDeleteProject = async () => {
+    const result = await Swal.fire({
+      title: "Are you sure?",
+      text: `You are about to delete "${project?.name}". This action cannot be undone!`,
+      icon: "warning",
+      showCancelButton: true,
+      confirmButtonColor: "#EF4444",
+      cancelButtonColor: "#6B7280",
+      confirmButtonText: "Yes, delete!",
+      cancelButtonText: "Cancel",
+    });
+
+    if (!result.isConfirmed) return;
+
+    setIsDeleting(true);
+    
+    sessionStorage.setItem(DELETE_STATE_KEY, JSON.stringify({
+      projectId,
+      deleting: true,
+      timestamp: Date.now()
+    }));
+
+    try {
+      const response = await deleteProject(projectId);
+      
+      sessionStorage.removeItem(DELETE_STATE_KEY);
+      
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      
+      Swal.fire({
+        icon: "success",
+        title: "Deleted!",
+        text: response?.data?.message || "Project deleted successfully.",
+        timer: 2000,
+        showConfirmButton: false,
+      }).then(() => {
+        navigate("/projects");
+      });
+    } catch (err) {
+      console.error("Delete error:", err);
+      sessionStorage.removeItem(DELETE_STATE_KEY);
+      
+      Swal.fire({
+        icon: "error",
+        title: "Delete Failed",
+        text: err.response?.data?.error || "Failed to delete project.",
+        confirmButtonColor: "#3B82F6",
+      });
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -347,7 +443,6 @@ function ProjectDetail() {
       Swal.fire({
         icon: "success",
         title: "Download Started",
-        text: "Your CSV file is being downloaded.",
         timer: 1500,
         showConfirmButton: false,
       });
@@ -397,41 +492,54 @@ function ProjectDetail() {
           <div>
             <button
               onClick={() => navigate("/projects")}
-              className="text-blue-600 hover:text-blue-800 transition flex items-center gap-1 mb-2"
+              className="text-blue-600 hover:text-blue-800 transition flex items-center gap-1 mb-2 text-sm"
             >
-              <ArrowLeft size={20} />
-              Back to Projects
+              <ArrowLeft size={16} />
+              Back
             </button>
-            <h1 className="text-3xl font-bold text-gray-800">{project?.name}</h1>
-            <p className="text-gray-600">{project?.description}</p>
+            <h1 className="text-2xl font-bold text-gray-800">{project?.name}</h1>
+            <p className="text-gray-600 text-sm">{project?.description}</p>
             <div className="flex items-center gap-4 mt-2 text-sm">
               <span className="flex items-center gap-1 text-gray-500">
                 <Users size={14} />
-                Assigned to: <span className="font-medium">{project?.assignedToUsername}</span>
+                {project?.assignedToUsername}
               </span>
               <span className="flex items-center gap-1 text-gray-500">
                 <FileText size={14} />
-                Progress: {project?.validatedCount || 0} / {project?.totalComments || 0}
+                {project?.validatedCount || 0}/{project?.totalComments || 0}
               </span>
               <span className="flex items-center gap-1 text-gray-500">
                 <Clock size={14} />
-                Pending: {unvalidatedCount}
+                {unvalidatedCount} pending
               </span>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             {/* Upload Button */}
             {isAdmin && (
               <label
-                className={`px-4 py-2 rounded-lg transition flex items-center gap-2 cursor-pointer ${
-                  fileUploaded
-                    ? "bg-gray-400 text-gray-600 cursor-not-allowed"
+                className={`px-3 py-1.5 text-sm rounded-lg transition flex items-center gap-1.5 cursor-pointer ${
+                  fileUploaded || uploading
+                    ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                     : "bg-blue-500 text-white hover:bg-blue-600"
                 }`}
-                title={fileUploaded ? "A file has already been uploaded to this project" : ""}
               >
-                <Upload size={20} />
-                {uploading ? "Uploading..." : fileUploaded ? "File Uploaded" : "Upload File"}
+                {uploading ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Uploading...
+                  </>
+                ) : fileUploaded ? (
+                  <>
+                    <CheckCircle size={16} />
+                    Uploaded
+                  </>
+                ) : (
+                  <>
+                    <Upload size={16} />
+                    Upload
+                  </>
+                )}
                 <input
                   type="file"
                   accept=".csv,.xls,.xlsx"
@@ -443,18 +551,45 @@ function ProjectDetail() {
             )}
 
             {/* Download CSV Button */}
+            {isAdmin && (
             <button
               onClick={handleDownloadCSV}
               disabled={downloading || comments.length === 0}
-              className={`px-4 py-2 rounded-lg transition flex items-center gap-2 ${
+              className={`px-3 py-1.5 text-sm rounded-lg transition flex items-center gap-1.5 ${
                 downloading || comments.length === 0
                   ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                   : "bg-green-500 text-white hover:bg-green-600"
               }`}
             >
-              <Download size={20} />
-              {downloading ? "Downloading..." : "Download CSV"}
+              <Download size={16} />
+              {downloading ? "Downloading..." : "CSV"}
             </button>
+            )}
+
+            {/* Delete Project Button */}
+            {isAdmin && (
+              <button
+                onClick={handleDeleteProject}
+                disabled={isDeleting}
+                className={`px-3 py-1.5 text-sm rounded-lg transition flex items-center gap-1.5 ${
+                  isDeleting
+                    ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                    : "bg-red-500 text-white hover:bg-red-600"
+                }`}
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={16} />
+                    Delete
+                  </>
+                )}
+              </button>
+            )}
 
             <button
               onClick={() => {
@@ -462,19 +597,19 @@ function ProjectDetail() {
                 refetchUnvalidated();
                 refetchProject();
               }}
-              className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 transition flex items-center gap-2"
+              className="bg-gray-200 text-gray-700 px-3 py-1.5 text-sm rounded-lg hover:bg-gray-300 transition flex items-center gap-1.5"
             >
-              <RefreshCw size={20} />
+              <RefreshCw size={16} />
               Refresh
             </button>
           </div>
         </div>
 
         {/* Filters & Controls */}
-        <div className="bg-white rounded-lg shadow p-4 mb-6">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Filter size={18} className="text-gray-500" />
+        <div className="bg-white rounded-lg shadow p-3 mb-6">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <Filter size={16} className="text-gray-500" />
               <span className="text-sm font-medium">Filters:</span>
             </div>
 
@@ -484,7 +619,7 @@ function ProjectDetail() {
                 setFilters({ ...filters, language: e.target.value });
                 setPage(1);
               }}
-              className="px-3 py-1 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="px-2 py-1 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">All Languages</option>
               <option value="Bangla">Bangla</option>
@@ -500,7 +635,7 @@ function ProjectDetail() {
                 setFilters({ ...filters, sentiment: e.target.value });
                 setPage(1);
               }}
-              className="px-3 py-1 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="px-2 py-1 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">All Sentiments</option>
               <option value="Positive">Positive</option>
@@ -508,11 +643,11 @@ function ProjectDetail() {
               <option value="Neutral">Neutral</option>
             </select>
 
-            <div className="flex-1 min-w-50">
+            <div className="flex-1 min-w-40">
               <div className="relative">
                 <Search
-                  size={16}
-                  className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
+                  size={14}
+                  className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400"
                 />
                 <input
                   type="text"
@@ -522,28 +657,26 @@ function ProjectDetail() {
                     setFilters({ ...filters, search: e.target.value });
                     setPage(1);
                   }}
-                  className="w-full pl-9 pr-3 py-1 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full pl-7 pr-2 py-1 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
             </div>
 
             <button onClick={clearFilters} className="text-red-600 hover:text-red-800 text-sm">
-              Clear All
+              Clear
             </button>
 
-            <div className="flex items-center gap-2 ml-auto">
-              <button
-                onClick={() => setShowValidated(!showValidated)}
-                className={`flex items-center gap-1 px-3 py-1 rounded-lg text-sm transition ${
-                  showValidated
-                    ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                    : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                }`}
-              >
-                {showValidated ? <Eye size={16} /> : <EyeOff size={16} />}
-                {showValidated ? "Hide Validated" : "Show Validated"}
-              </button>
-            </div>
+            <button
+              onClick={() => setShowValidated(!showValidated)}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-sm transition ${
+                showValidated
+                  ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              {showValidated ? <Eye size={14} /> : <EyeOff size={14} />}
+              {showValidated ? "Hide" : "Show"}
+            </button>
           </div>
         </div>
 
@@ -554,15 +687,22 @@ function ProjectDetail() {
           </div>
         ) : comments.length === 0 ? (
           <div className="bg-white rounded-lg shadow p-12 text-center">
-            <FileText size={64} className="mx-auto text-gray-300 mb-4" />
-            <h3 className="text-xl font-semibold text-gray-600">No Comments Found</h3>
-            <p className="text-gray-500 mt-2">
+            <FileText size={48} className="mx-auto text-gray-300 mb-4" />
+            <h3 className="text-lg font-semibold text-gray-600">No Comments Found</h3>
+            <p className="text-gray-500 text-sm mt-2">
               {isAdmin
                 ? fileUploaded
                   ? "No comments were extracted from the uploaded file."
-                  : "Upload a file to get started."
+                  : uploading 
+                    ? "Uploading file, please wait..."
+                    : "Upload a file to get started."
                 : "No comments available for this project."}
             </p>
+            {uploading && (
+              <div className="mt-4 flex justify-center">
+                <Loader2 size={32} className="animate-spin text-blue-500" />
+              </div>
+            )}
           </div>
         ) : (
           <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -570,22 +710,22 @@ function ProjectDetail() {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-12">
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-10">
                       #
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Comment
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-36">
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
                       Language
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-36">
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
                       Sentiment
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28">
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
                       Status
                     </th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-20">
                       Action
                     </th>
                   </tr>
@@ -605,13 +745,13 @@ function ProjectDetail() {
                           comment.isValidated ? "bg-gray-50 opacity-75" : "hover:bg-gray-50"
                         } transition`}
                       >
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                        <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-500">
                           {(page - 1) * limit + index + 1}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-800 wrap-break-word max-w-md">
+                        <td className="px-3 py-2 text-sm text-gray-800 wrap-break-word max-w-md">
                           {comment.text}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
+                        <td className="px-3 py-2 whitespace-nowrap">
                           {comment.isValidated ? (
                             <span className="text-sm font-medium text-gray-700">
                               {comment.language}
@@ -629,7 +769,7 @@ function ProjectDetail() {
                                 }));
                               }}
                               disabled={isDisabled}
-                              className={`px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                              className={`px-2 py-0.5 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                                 isDisabled ? "bg-gray-100 cursor-not-allowed" : ""
                               }`}
                             >
@@ -642,7 +782,7 @@ function ProjectDetail() {
                             </select>
                           )}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
+                        <td className="px-3 py-2 whitespace-nowrap">
                           {comment.isValidated ? (
                             <span className="text-sm font-medium text-gray-700">
                               {comment.sentiment}
@@ -660,7 +800,7 @@ function ProjectDetail() {
                                 }));
                               }}
                               disabled={isDisabled}
-                              className={`px-2 py-1 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                              className={`px-2 py-0.5 border rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                                 isDisabled ? "bg-gray-100 cursor-not-allowed" : ""
                               }`}
                             >
@@ -671,39 +811,38 @@ function ProjectDetail() {
                             </select>
                           )}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
+                        <td className="px-3 py-2 whitespace-nowrap">
                           {comment.isValidated ? (
-                            <span className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-100 px-2 py-1 rounded-full">
-                              <CheckCircle size={14} />
-                              Validated
+                            <span className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
+                              <CheckCircle size={12} />
+                              Done
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1 text-xs text-yellow-700 bg-yellow-100 px-2 py-1 rounded-full">
-                              <Clock size={14} />
+                            <span className="inline-flex items-center gap-1 text-xs text-yellow-700 bg-yellow-100 px-2 py-0.5 rounded-full">
+                              <Clock size={12} />
                               Pending
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
+                        <td className="px-3 py-2 whitespace-nowrap">
                           {!comment.isValidated && canValidate ? (
                             <button
                               onClick={() => {
                                 handleValidate(comment._id, tempLang, tempSent);
                               }}
-                              disabled={isPending}
-                              className={`px-3 py-1 text-sm rounded-lg transition ${
-                                isPending
-                                  ? "bg-gray-300 cursor-not-allowed"
+                              disabled={isPending || !tempLang || !tempSent}
+                              className={`px-2.5 py-1 text-xs rounded-lg transition ${
+                                isPending || !tempLang || !tempSent
+                                  ? "bg-gray-200 text-gray-400 cursor-not-allowed"
                                   : "bg-green-500 text-white hover:bg-green-600"
                               }`}
                             >
                               {isPending ? (
                                 <span className="flex items-center gap-1">
                                   <span className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent"></span>
-                                  ...
                                 </span>
                               ) : (
-                                "Validate"
+                                "Save"
                               )}
                             </button>
                           ) : (
@@ -718,16 +857,16 @@ function ProjectDetail() {
             </div>
 
             {/* Pagination */}
-            <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <span>Rows per page:</span>
+            <div className="px-4 py-2 bg-gray-50 border-t border-gray-200 flex flex-wrap items-center justify-between gap-2 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-600">Rows:</span>
                 <select
                   value={limit}
                   onChange={(e) => {
                     setLimit(Number(e.target.value));
                     setPage(1);
                   }}
-                  className="border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="border rounded px-1.5 py-0.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   {pageSizeOptions.map((size) => (
                     <option key={size} value={size}>
@@ -735,9 +874,9 @@ function ProjectDetail() {
                     </option>
                   ))}
                 </select>
-                <span className="ml-2">
+                <span className="text-gray-600">
                   {pagination.total
-                    ? `Showing ${(page - 1) * limit + 1}–${Math.min(page * limit, pagination.total)} of ${pagination.total}`
+                    ? `${(page - 1) * limit + 1}-${Math.min(page * limit, pagination.total)} of ${pagination.total}`
                     : ""}
                 </span>
               </div>
@@ -747,9 +886,9 @@ function ProjectDetail() {
                   disabled={page === 1}
                   className="p-1 rounded border hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <ChevronLeft size={18} />
+                  <ChevronLeft size={16} />
                 </button>
-                <span className="text-sm text-gray-600">
+                <span className="text-gray-600">
                   Page {page} of {pagination.totalPages || 1}
                 </span>
                 <button
@@ -757,7 +896,7 @@ function ProjectDetail() {
                   disabled={page === pagination.totalPages || pagination.totalPages === 0}
                   className="p-1 rounded border hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <ChevronRight size={18} />
+                  <ChevronRight size={16} />
                 </button>
               </div>
             </div>
