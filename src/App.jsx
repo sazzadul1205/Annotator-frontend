@@ -1,7 +1,10 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Login from './Pages/auth/Login'
 import Dashboard from './Pages/Dashboard'
+import UserManagement from './Pages/UserManagement'
+import Profile from './Pages/Profile'
 import ProtectedRoute from './components/ProtectedRoute'
+import AdminRoute from './components/AdminRoute'
 
 function App() {
   return (
@@ -12,6 +15,16 @@ function App() {
         <ProtectedRoute>
           <Dashboard />
         </ProtectedRoute>
+      } />
+      <Route path="/profile" element={
+        <ProtectedRoute>
+          <Profile />
+        </ProtectedRoute>
+      } />
+      <Route path="/users" element={
+        <AdminRoute>
+          <UserManagement />
+        </AdminRoute>
       } />
     </Routes>
   )

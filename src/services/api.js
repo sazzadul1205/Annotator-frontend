@@ -13,6 +13,16 @@ export const createAccount = (userData) => {
   return axios.post(`${API_URL}/auth/create-account`, userData)
 }
 
+// Add this function
+export const getUsers = () => {
+  const token = localStorage.getItem('token')
+  return axios.get(`${API_URL}/auth/users`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+}
+
 export const getUser = (userId) => {
   const token = localStorage.getItem('token')
 
