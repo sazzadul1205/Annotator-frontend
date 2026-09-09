@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from "react-router-dom";
-import Login from "./Pages/auth/Login";
+import Login from "./Pages/Login";
 import Dashboard from "./Pages/Dashboard";
 import UserManagement from "./Pages/UserManagement";
 import Profile from "./Pages/Profile";

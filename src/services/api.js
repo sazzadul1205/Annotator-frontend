@@ -1,8 +1,8 @@
 import axios from "axios";
 
-const API_URL = "http://localhost:5000/api";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
-// ============== AUTH API ==============
+// AUTH API
 export const loginUser = (username, password) => {
   return axios.post(`${API_URL}/auth/login`, { username, password });
 };
@@ -39,7 +39,7 @@ export const deleteAccount = (userId) => {
   });
 };
 
-// ============== PROJECT API ==============
+// PROJECT API
 export const createProject = (projectData) => {
   const token = localStorage.getItem("token");
   return axios.post(`${API_URL}/projects`, projectData, {
@@ -89,7 +89,7 @@ export const downloadCommentsCSV = (projectId) => {
   });
 };
 
-// ============== COMMENT API ==============
+// COMMENT API
 export const getComments = (projectId, params = {}) => {
   const token = localStorage.getItem("token");
   const queryParams = new URLSearchParams(params).toString();

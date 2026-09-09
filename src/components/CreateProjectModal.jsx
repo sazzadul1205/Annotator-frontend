@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { X, FolderPlus, Users, AlertCircle, User, FileText } from 'lucide-react'
+
 import { createProject } from '../services/api'
 
 function CreateProjectModal({ onClose, users, onProjectCreated }) {
@@ -11,6 +12,7 @@ function CreateProjectModal({ onClose, users, onProjectCreated }) {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
 
+  // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!formData.name || !formData.assignedTo) {

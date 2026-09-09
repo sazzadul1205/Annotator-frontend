@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { updateAccount, changePassword } from '../services/api'
 import Sidebar from '../components/Sidebar'
 import {
@@ -21,18 +20,20 @@ import {
 
 function Profile() {
   const { user } = useAuth()
-  const queryClient = useQueryClient()
-  const [isEditing, setIsEditing] = useState(false)
-  const [isChangingPassword, setIsChangingPassword] = useState(false)
+
+  // State
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  
+  const [isEditing, setIsEditing] = useState(false)
+  const [isChangingPassword, setIsChangingPassword] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
+
   // Profile edit state
   const [editData, setEditData] = useState({
     username: user?.username || '',
     email: user?.email || '',
   })
-  
+
   // Password change state
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
@@ -40,28 +41,63 @@ function Profile() {
     confirmPassword: '',
   })
 
-  // Update profile mutation
-  const updateMutation = useMutation({
-    mutationFn: (data) => updateAccount(user?._id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries(['user'])
-      setSuccess('Profile updated successfully!')
-      setIsEditing(false)
+  const handleProfileUpdate = async (e) => {
+    e.preventDefault()
+
+    if (!editData.username || !editData.email) {
+      setError('All fields are required')
+      setTimeout(() => setError(''), 3000)
+      return
+    }
+
+    setIsLoading(true)
+    setError('')
+    setSuccess('')
+
+    try {
+       await updateAccount(user?._id, editData)
+
       // Update local user data
       const updatedUser = { ...user, ...editData }
       localStorage.setItem('user', JSON.stringify(updatedUser))
+
+      setSuccess('Profile updated successfully!')
+      setIsEditing(false)
       setTimeout(() => setSuccess(''), 3000)
-    },
-    onError: (err) => {
+
+    } catch (err) {
       setError(err.response?.data?.error || 'Failed to update profile')
       setTimeout(() => setError(''), 3000)
-    },
-  })
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
-  // Change password mutation
-  const passwordMutation = useMutation({
-    mutationFn: (data) => changePassword(user?._id, data),
-    onSuccess: () => {
+  const handlePasswordChange = async (e) => {
+    e.preventDefault()
+
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      setError('New passwords do not match')
+      setTimeout(() => setError(''), 3000)
+      return
+    }
+
+    if (passwordData.newPassword.length < 6) {
+      setError('Password must be at least 6 characters')
+      setTimeout(() => setError(''), 3000)
+      return
+    }
+
+    setIsLoading(true)
+    setError('')
+    setSuccess('')
+
+    try {
+      await changePassword(user?._id, {
+        currentPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword,
+      })
+
       setSuccess('Password changed successfully!')
       setIsChangingPassword(false)
       setPasswordData({
@@ -70,36 +106,13 @@ function Profile() {
         confirmPassword: '',
       })
       setTimeout(() => setSuccess(''), 3000)
-    },
-    onError: (err) => {
+
+    } catch (err) {
       setError(err.response?.data?.error || 'Failed to change password')
       setTimeout(() => setError(''), 3000)
-    },
-  })
-
-  const handleProfileUpdate = (e) => {
-    e.preventDefault()
-    if (!editData.username || !editData.email) {
-      setError('All fields are required')
-      return
+    } finally {
+      setIsLoading(false)
     }
-    updateMutation.mutate(editData)
-  }
-
-  const handlePasswordChange = (e) => {
-    e.preventDefault()
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      setError('New passwords do not match')
-      return
-    }
-    if (passwordData.newPassword.length < 6) {
-      setError('Password must be at least 6 characters')
-      return
-    }
-    passwordMutation.mutate({
-      currentPassword: passwordData.currentPassword,
-      newPassword: passwordData.newPassword,
-    })
   }
 
   return (
@@ -259,11 +272,11 @@ function Profile() {
                   </button>
                   <button
                     type="submit"
-                    disabled={updateMutation.isPending}
+                    disabled={isLoading}
                     className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition disabled:bg-blue-300 flex items-center gap-2"
                   >
                     <Save size={16} />
-                    {updateMutation.isPending ? 'Saving...' : 'Save Changes'}
+                    {isLoading ? 'Saving...' : 'Save Changes'}
                   </button>
                 </div>
               </form>
@@ -358,11 +371,11 @@ function Profile() {
                       </button>
                       <button
                         type="submit"
-                        disabled={passwordMutation.isPending}
+                        disabled={isLoading}
                         className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition disabled:bg-green-300 flex items-center gap-2"
                       >
                         <CheckCircle size={16} />
-                        {passwordMutation.isPending ? 'Changing...' : 'Change Password'}
+                        {isLoading ? 'Changing...' : 'Change Password'}
                       </button>
                     </div>
                   </form>
