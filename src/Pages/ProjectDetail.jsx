@@ -8,6 +8,7 @@ import {
   getUnvalidatedCount,
   downloadCommentsCSV,
   deleteProject,
+  downloadCommentsExcel,
 } from "../services/api";
 import Sidebar from "../components/Sidebar";
 import FileUploadModal from "../components/FileUploadModal";
@@ -52,6 +53,7 @@ function ProjectDetail() {
   });
   const [uploading, setUploading] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [downloadingExcel, setDownloadingExcel] = useState(false);
   const [validatingIds, setValidatingIds] = useState(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -419,6 +421,59 @@ function ProjectDetail() {
     }
   };
 
+  const handleDownloadExcel = async () => {
+    setDownloadingExcel(true);
+    try {
+      const response = await downloadCommentsExcel(projectId);
+
+      const blob = new Blob([response.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute(
+        "download",
+        `project_${project.name.replace(/\s+/g, "_")}_comments.xlsx`
+      );
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      Swal.fire({
+        icon: "success",
+        title: "Download Started",
+        timer: 1500,
+        showConfirmButton: false,
+      });
+    } catch (err) {
+      console.error("Excel download error:", err);
+
+      let errorMessage = "Failed to download Excel";
+      if (err.response?.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text();
+          const json = JSON.parse(text);
+          errorMessage = json.error || errorMessage;
+        } catch {
+          // ignore
+        }
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      }
+
+      Swal.fire({
+        icon: "error",
+        title: "Download Failed",
+        text: errorMessage,
+        confirmButtonColor: "#3B82F6",
+      });
+    } finally {
+      setDownloadingExcel(false);
+    }
+  };
+
   const clearFilters = () => {
     setFilters({ language: "", sentiment: "", search: "" });
     setPage(1);
@@ -565,6 +620,30 @@ function ProjectDetail() {
                   {downloading ? "Downloading..." : "Export CSV"}
                 </span>
                 <span className="xs:hidden">CSV</span>
+              </button>
+            )}
+
+            {/* Download Excel Button */}
+            {isAdmin && (
+              <button
+                onClick={handleDownloadExcel}
+                disabled={downloadingExcel || comments.length === 0}
+                className={`
+      relative flex-1 sm:flex-none px-3 sm:px-4 py-2 sm:py-2.5 
+      text-xs sm:text-sm font-medium rounded-xl 
+      transition-all duration-200 
+      flex items-center justify-center gap-1.5 sm:gap-2
+      ${downloadingExcel || comments.length === 0
+                    ? "bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200"
+                    : "bg-emerald-600 text-white hover:bg-emerald-700 hover:shadow-md active:scale-[0.98] shadow-sm"
+                  }
+    `}
+              >
+                <Download size={14} className="sm:text-[16px]" />
+                <span className="hidden xs:inline">
+                  {downloadingExcel ? "Downloading..." : "Export Excel"}
+                </span>
+                <span className="xs:hidden">XLSX</span>
               </button>
             )}
 

@@ -2,7 +2,13 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
-import { getProjects, deleteProject, getUsers } from "../services/api";
+import {
+  getProjects,
+  deleteProject,
+  getUsers,
+  downloadCommentsCSV,
+  downloadCommentsExcel,
+} from "../services/api";
 import Sidebar from "../components/Sidebar";
 import { useAuth } from "../hooks/useAuth";
 import CreateProjectModal from "../components/CreateProjectModal";
@@ -20,6 +26,8 @@ import {
   Search,
   Filter,
   X,
+  Download,
+  FileSpreadsheet,
 } from "lucide-react";
 
 function ProjectManagement() {
@@ -28,6 +36,7 @@ function ProjectManagement() {
   const queryClient = useQueryClient();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [downloading, setDownloading] = useState({ id: null, type: null });
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
 
@@ -85,43 +94,109 @@ function ProjectManagement() {
     }
   };
 
+  const handleDownload = async (e, project, type /* "csv" | "excel" */) => {
+    e.stopPropagation();
+
+    if (!project.totalComments) return;
+
+    setDownloading({ id: project._id, type });
+
+    try {
+      const fetcher = type === "excel" ? downloadCommentsExcel : downloadCommentsCSV;
+      const response = await fetcher(project._id);
+
+      const ext = type === "excel" ? "xlsx" : "csv";
+      const mime =
+        type === "excel"
+          ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          : "text/csv";
+
+      const blob = new Blob([response.data], { type: mime });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute(
+        "download",
+        `project_${project.name.replace(/\s+/g, "_")}_comments.${ext}`
+      );
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      Swal.fire({
+        icon: "success",
+        title: "Download Started",
+        timer: 1200,
+        showConfirmButton: false,
+      });
+    } catch (err) {
+      console.error(`${type} download error:`, err);
+
+      let errorMessage = `Failed to download ${type.toUpperCase()}`;
+      if (err.response?.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text();
+          const json = JSON.parse(text);
+          errorMessage = json.error || errorMessage;
+        } catch {
+          /* ignore parse errors */
+        }
+      } else if (err.response?.data?.error) {
+        errorMessage = err.response.data.error;
+      }
+
+      Swal.fire({
+        icon: "error",
+        title: "Download Failed",
+        text: errorMessage,
+        confirmButtonColor: "#3B82F6",
+      });
+    } finally {
+      setDownloading({ id: null, type: null });
+    }
+  };
+
   const projects = data?.data?.data || [];
   const users = usersData?.data?.data || [];
 
   // Filter projects
   const filteredProjects = projects.filter((project) => {
-    const matchesSearch = project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         project.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         project.assignedToUsername?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch =
+      project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      project.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      project.assignedToUsername?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter ? project.status === statusFilter : true;
     return matchesSearch && matchesStatus;
   });
 
   const getStatusBadge = (status) => {
     const statusMap = {
-      pending: { 
-        color: "bg-yellow-50 text-yellow-700 border-yellow-200", 
-        icon: Clock, 
+      pending: {
+        color: "bg-yellow-50 text-yellow-700 border-yellow-200",
+        icon: Clock,
         label: "Pending",
-        dotColor: "bg-yellow-400"
+        dotColor: "bg-yellow-400",
       },
-      in_progress: { 
-        color: "bg-blue-50 text-blue-700 border-blue-200", 
-        icon: FileText, 
+      in_progress: {
+        color: "bg-blue-50 text-blue-700 border-blue-200",
+        icon: FileText,
         label: "In Progress",
-        dotColor: "bg-blue-400"
+        dotColor: "bg-blue-400",
       },
-      completed: { 
-        color: "bg-green-50 text-green-700 border-green-200", 
-        icon: CheckCircle, 
+      completed: {
+        color: "bg-green-50 text-green-700 border-green-200",
+        icon: CheckCircle,
         label: "Completed",
-        dotColor: "bg-green-400"
+        dotColor: "bg-green-400",
       },
     };
     const s = statusMap[status] || statusMap.pending;
     const Icon = s.icon;
     return (
-      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] sm:text-xs font-medium rounded-full border ${s.color}`}>
+      <span
+        className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-[10px] sm:text-xs font-medium rounded-full border ${s.color}`}
+      >
         <span className={`w-1.5 h-1.5 rounded-full ${s.dotColor}`} />
         <Icon size={10} className="sm:text-[12px]" />
         <span className="hidden xs:inline">{s.label}</span>
@@ -134,7 +209,8 @@ function ProjectManagement() {
   const totalProjects = projects.length;
   const totalComments = projects.reduce((sum, p) => sum + (p.totalComments || 0), 0);
   const totalValidated = projects.reduce((sum, p) => sum + (p.validatedCount || 0), 0);
-  const completionRate = totalComments > 0 ? Math.round((totalValidated / totalComments) * 100) : 0;
+  const completionRate =
+    totalComments > 0 ? Math.round((totalValidated / totalComments) * 100) : 0;
 
   // Clear filters
   const clearFilters = () => {
@@ -143,6 +219,7 @@ function ProjectManagement() {
   };
 
   const hasActiveFilters = searchTerm || statusFilter;
+  const isAdmin = user?.role === "Admin";
 
   return (
     <div className="flex">
@@ -159,7 +236,7 @@ function ProjectManagement() {
               Manage and track your annotation projects
             </p>
           </div>
-          {user?.role === "Admin" && (
+          {isAdmin && (
             <button
               onClick={() => setShowCreateModal(true)}
               className="w-full sm:w-auto bg-blue-600 text-white px-4 sm:px-6 py-2.5 sm:py-2.5 rounded-xl hover:bg-blue-700 transition-all duration-200 flex items-center justify-center gap-2 text-sm sm:text-base font-medium shadow-sm hover:shadow-md active:scale-[0.98]"
@@ -174,20 +251,36 @@ function ProjectManagement() {
         {!isLoading && !isError && projects.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 mb-6">
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4">
-              <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider">Total Projects</p>
-              <p className="text-xl sm:text-2xl font-bold text-gray-800 mt-1">{totalProjects}</p>
+              <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Total Projects
+              </p>
+              <p className="text-xl sm:text-2xl font-bold text-gray-800 mt-1">
+                {totalProjects}
+              </p>
             </div>
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4">
-              <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider">Total Comments</p>
-              <p className="text-xl sm:text-2xl font-bold text-gray-800 mt-1">{totalComments}</p>
+              <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Total Comments
+              </p>
+              <p className="text-xl sm:text-2xl font-bold text-gray-800 mt-1">
+                {totalComments}
+              </p>
             </div>
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4">
-              <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider">Validated</p>
-              <p className="text-xl sm:text-2xl font-bold text-green-600 mt-1">{totalValidated}</p>
+              <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Validated
+              </p>
+              <p className="text-xl sm:text-2xl font-bold text-green-600 mt-1">
+                {totalValidated}
+              </p>
             </div>
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4">
-              <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider">Completion Rate</p>
-              <p className="text-xl sm:text-2xl font-bold text-blue-600 mt-1">{completionRate}%</p>
+              <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Completion Rate
+              </p>
+              <p className="text-xl sm:text-2xl font-bold text-blue-600 mt-1">
+                {completionRate}%
+              </p>
             </div>
           </div>
         )}
@@ -199,7 +292,10 @@ function ProjectManagement() {
               {/* Search */}
               <div className="flex-1 min-w-37.5 sm:min-w-50">
                 <div className="relative">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <Search
+                    size={16}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                  />
                   <input
                     type="text"
                     placeholder="Search projects..."
@@ -223,15 +319,17 @@ function ProjectManagement() {
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  className="appearance-none px-3 py-2 pr-8 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50 hover:bg-white transition-colors cursor-pointer 
-                  min-w-30"
+                  className="appearance-none px-3 py-2 pr-8 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50 hover:bg-white transition-colors cursor-pointer min-w-30"
                 >
                   <option value="">All Status</option>
                   <option value="pending">Pending</option>
                   <option value="in_progress">In Progress</option>
                   <option value="completed">Completed</option>
                 </select>
-                <Filter size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                <Filter
+                  size={14}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+                />
               </div>
 
               {/* Clear Filters */}
@@ -246,7 +344,8 @@ function ProjectManagement() {
 
               {/* Results Count */}
               <span className="text-xs text-gray-400 ml-auto whitespace-nowrap">
-                {filteredProjects.length} {filteredProjects.length === 1 ? "project" : "projects"}
+                {filteredProjects.length}{" "}
+                {filteredProjects.length === 1 ? "project" : "projects"}
               </span>
             </div>
           </div>
@@ -286,12 +385,12 @@ function ProjectManagement() {
               </h3>
               <p className="text-gray-500 text-sm sm:text-base mt-2 max-w-md">
                 {projects.length === 0
-                  ? user?.role === "Admin"
+                  ? isAdmin
                     ? "Create your first project to get started with annotation."
                     : "You have no projects assigned to you yet."
                   : "Try adjusting your search or filter criteria."}
               </p>
-              {projects.length === 0 && user?.role === "Admin" && (
+              {projects.length === 0 && isAdmin && (
                 <button
                   onClick={() => setShowCreateModal(true)}
                   className="mt-6 bg-blue-600 text-white px-5 py-2.5 rounded-xl hover:bg-blue-700 transition flex items-center gap-2 text-sm font-medium shadow-sm hover:shadow-md"
@@ -342,7 +441,10 @@ function ProjectManagement() {
                         <Users size={13} className="sm:text-[14px] text-gray-400" />
                         Assigned to
                       </span>
-                      <span className="font-medium text-gray-700 truncate max-w-30 sm:max-w-37.5" title={project.assignedToUsername}>
+                      <span
+                        className="font-medium text-gray-700 truncate max-w-30 sm:max-w-37.5"
+                        title={project.assignedToUsername}
+                      >
                         {project.assignedToUsername}
                       </span>
                     </div>
@@ -362,20 +464,24 @@ function ProjectManagement() {
                       <div className="w-full bg-gray-100 rounded-full h-1.5 sm:h-2 overflow-hidden">
                         <div
                           className={`h-1.5 sm:h-2 rounded-full transition-all duration-700 ease-out ${
-                            project.totalComments > 0 && ((project.validatedCount || 0) / project.totalComments) === 1
+                            project.totalComments > 0 &&
+                            (project.validatedCount || 0) / project.totalComments === 1
                               ? "bg-green-500"
                               : "bg-blue-500"
                           }`}
                           style={{
-                            width: project.totalComments > 0
-                              ? `${((project.validatedCount || 0) / project.totalComments) * 100}%`
-                              : "0%",
+                            width:
+                              project.totalComments > 0
+                                ? `${((project.validatedCount || 0) / project.totalComments) * 100}%`
+                                : "0%",
                           }}
                         />
                       </div>
                       <span className="absolute right-0 -top-4 text-[10px] font-medium text-gray-400">
                         {project.totalComments > 0
-                          ? `${Math.round(((project.validatedCount || 0) / project.totalComments) * 100)}%`
+                          ? `${Math.round(
+                              ((project.validatedCount || 0) / project.totalComments) * 100
+                            )}%`
                           : "0%"}
                       </span>
                     </div>
@@ -383,6 +489,47 @@ function ProjectManagement() {
 
                   {/* Action Buttons */}
                   <div className="flex justify-end gap-1.5 mt-4 pt-3.5 border-t border-gray-100">
+                    {/* Download CSV — Admin only */}
+                    {isAdmin && project.totalComments > 0 && (
+                      <button
+                        onClick={(e) => handleDownload(e, project, "csv")}
+                        disabled={downloading.id === project._id}
+                        className={`p-2 rounded-lg transition-all duration-200 ${
+                          downloading.id === project._id
+                            ? "text-gray-400 cursor-not-allowed"
+                            : "text-green-600 hover:text-green-800 hover:bg-green-50"
+                        }`}
+                        title="Download CSV"
+                      >
+                        {downloading.id === project._id && downloading.type === "csv" ? (
+                          <Loader2 size={17} className="sm:text-[18px] animate-spin" />
+                        ) : (
+                          <Download size={17} className="sm:text-[18px]" />
+                        )}
+                      </button>
+                    )}
+
+                    {/* Download Excel — Admin only */}
+                    {isAdmin && project.totalComments > 0 && (
+                      <button
+                        onClick={(e) => handleDownload(e, project, "excel")}
+                        disabled={downloading.id === project._id}
+                        className={`p-2 rounded-lg transition-all duration-200 ${
+                          downloading.id === project._id
+                            ? "text-gray-400 cursor-not-allowed"
+                            : "text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50"
+                        }`}
+                        title="Download Excel"
+                      >
+                        {downloading.id === project._id && downloading.type === "excel" ? (
+                          <Loader2 size={17} className="sm:text-[18px] animate-spin" />
+                        ) : (
+                          <FileSpreadsheet size={17} className="sm:text-[18px]" />
+                        )}
+                      </button>
+                    )}
+
+                    {/* View */}
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -393,7 +540,9 @@ function ProjectManagement() {
                     >
                       <Eye size={17} className="sm:text-[18px]" />
                     </button>
-                    {user?.role === "Admin" && (
+
+                    {/* Delete — Admin only */}
+                    {isAdmin && (
                       <button
                         onClick={(e) => {
                           e.stopPropagation();

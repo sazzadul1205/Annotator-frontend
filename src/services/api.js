@@ -80,12 +80,21 @@ export const uploadFileToProject = (projectId, file) => {
   });
 };
 
-// 📥 Download CSV – returns the file as a blob
+// Download CSV – returns the file as a blob
 export const downloadCommentsCSV = (projectId) => {
   const token = localStorage.getItem("token");
   return axios.get(`${API_URL}/projects/${projectId}/download-csv`, {
     headers: { Authorization: `Bearer ${token}` },
-    responseType: "blob", // Important: to handle binary data
+    responseType: "blob",
+  });
+};
+
+// Download Excel – returns the file as a blob
+export const downloadCommentsExcel = (projectId) => {
+  const token = localStorage.getItem("token");
+  return axios.get(`${API_URL}/projects/${projectId}/download-excel`, {
+    headers: { Authorization: `Bearer ${token}` },
+    responseType: "blob",
   });
 };
 
