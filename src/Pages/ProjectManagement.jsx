@@ -279,7 +279,7 @@ function ProjectManagement() {
           <div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 flex items-center gap-2">
               <FolderOpen size={24} className="sm:text-[32px] text-blue-500" />
-              Projects
+              Dashboard
             </h1>
             <p className="text-gray-500 text-xs sm:text-sm mt-0.5">
               Manage and track your annotation projects

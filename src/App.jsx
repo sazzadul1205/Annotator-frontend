@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import Login from "./Pages/Login";
-import Dashboard from "./Pages/Dashboard";
+// import Dashboard from "./Pages/Dashboard";
 import UserManagement from "./Pages/UserManagement";
 import Profile from "./Pages/Profile";
 import ProjectManagement from "./Pages/ProjectManagement";
@@ -18,14 +18,14 @@ function App() {
         <Route path="*" element={<NotFound />} />
         <Route path="/" element={<Navigate to="/login" replace />} />
 
-        <Route
+        {/* <Route
           path="/dashboard"
           element={
             <ProtectedRoute>
               <Dashboard />
             </ProtectedRoute>
           }
-        />
+        /> */}
         <Route
           path="/profile"
           element={
@@ -35,7 +35,7 @@ function App() {
           }
         />
         <Route
-          path="/projects"
+          path="/dashboard"
           element={
             <ProtectedRoute>
               <ProjectManagement />
