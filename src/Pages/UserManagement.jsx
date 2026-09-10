@@ -14,9 +14,6 @@ import {
   CheckCircle,
   AlertCircle,
   Users,
-  Search,
-  X,
-  Filter,
   Mail,
 } from "lucide-react";
 
@@ -170,11 +167,6 @@ function UserManagement() {
     return matchesSearch && matchesRole;
   });
 
-  // Get stats
-  const totalUsers = users.length;
-  const adminCount = users.filter(u => u.role === 'Admin').length;
-  const annotatorCount = users.filter(u => u.role === 'Annotator').length;
-
   // Clear filters
   const clearFilters = () => {
     setSearchTerm("");
@@ -206,82 +198,6 @@ function UserManagement() {
             New User
           </button>
         </div>
-
-        {/* Stats Cards */}
-        {!isLoading && !isError && users.length > 0 && (
-          <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-6">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4">
-              <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider">Total</p>
-              <p className="text-xl sm:text-2xl font-bold text-gray-800 mt-1">{totalUsers}</p>
-            </div>
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4">
-              <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider">Admins</p>
-              <p className="text-xl sm:text-2xl font-bold text-purple-600 mt-1">{adminCount}</p>
-            </div>
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4">
-              <p className="text-[10px] sm:text-xs font-medium text-gray-500 uppercase tracking-wider">Annotators</p>
-              <p className="text-xl sm:text-2xl font-bold text-blue-600 mt-1">{annotatorCount}</p>
-            </div>
-          </div>
-        )}
-
-        {/* Search & Filter Bar */}
-        {!isLoading && !isError && users.length > 0 && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-3 sm:p-4 mb-6">
-            <div className="flex flex-wrap items-center gap-3">
-              {/* Search */}
-              <div className="flex-1 min-w-37.5 sm:min-w-50">
-                <div className="relative">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search users..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50 hover:bg-white transition-colors placeholder:text-gray-400"
-                  />
-                  {searchTerm && (
-                    <button
-                      onClick={() => setSearchTerm("")}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Role Filter */}
-              <div className="relative">
-                <select
-                  value={roleFilter}
-                  onChange={(e) => setRoleFilter(e.target.value)}
-                  className="appearance-none px-3 py-2 pr-8 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50 hover:bg-white transition-colors cursor-pointer min-w-30"
-                >
-                  <option value="">All Roles</option>
-                  <option value="Admin">Admin</option>
-                  <option value="Annotator">Annotator</option>
-                </select>
-                <Filter size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-              </div>
-
-              {/* Clear Filters */}
-              {hasActiveFilters && (
-                <button
-                  onClick={clearFilters}
-                  className="text-xs sm:text-sm text-red-600 hover:text-red-700 font-medium whitespace-nowrap"
-                >
-                  Clear filters
-                </button>
-              )}
-
-              {/* Results Count */}
-              <span className="text-xs text-gray-400 ml-auto whitespace-nowrap">
-                {filteredUsers.length} {filteredUsers.length === 1 ? "user" : "users"}
-              </span>
-            </div>
-          </div>
-        )}
 
         {/* Loading State */}
         {isLoading && (
