@@ -8,10 +8,13 @@ import {
   getUsers,
   downloadCommentsCSV,
   downloadCommentsExcel,
+  updateProject,
 } from "../services/api";
 import Sidebar from "../components/Sidebar";
 import { useAuth } from "../hooks/useAuth";
 import CreateProjectModal from "../components/CreateProjectModal";
+import EditProjectModal from "../components/EditProjectModal";
+import VersionHistoryModal from "../components/VersionHistoryModal";
 import {
   FolderOpen,
   Plus,
@@ -28,6 +31,8 @@ import {
   X,
   Download,
   FileSpreadsheet,
+  History,
+  FolderEdit,
 } from "lucide-react";
 
 function ProjectManagement() {
@@ -39,6 +44,11 @@ function ProjectManagement() {
   const [downloading, setDownloading] = useState({ id: null, type: null });
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+
+  // Edit & History state
+  const [editingProject, setEditingProject] = useState(null);
+  const [editLoading, setEditLoading] = useState(false);
+  const [historyProject, setHistoryProject] = useState(null);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["projects"],
@@ -52,6 +62,7 @@ function ProjectManagement() {
   });
 
   const handleProjectCreated = async () => {
+    await queryClient.invalidateQueries({ queryKey: ["projects"] });
     await refetch();
   };
 
@@ -86,11 +97,40 @@ function ProjectManagement() {
       Swal.fire({
         icon: "error",
         title: "Delete Failed",
-        text: err.response?.data?.error || "Failed to delete project. Please try again.",
+        text:
+          err.response?.data?.error ||
+          "Failed to delete project. Please try again.",
         confirmButtonColor: "#3B82F6",
       });
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleEditProject = async (form) => {
+    if (!editingProject) return;
+    setEditLoading(true);
+    try {
+      await updateProject(editingProject._id, form);
+      setEditingProject(null);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+      await refetch();
+      Swal.fire({
+        icon: "success",
+        title: "Project Updated",
+        timer: 1500,
+        showConfirmButton: false,
+      });
+    } catch (err) {
+      console.error("Update error:", err);
+      Swal.fire({
+        icon: "error",
+        title: "Update Failed",
+        text: err.response?.data?.error || "Failed to update project",
+        confirmButtonColor: "#3B82F6",
+      });
+    } finally {
+      setEditLoading(false);
     }
   };
 
@@ -102,7 +142,8 @@ function ProjectManagement() {
     setDownloading({ id: project._id, type });
 
     try {
-      const fetcher = type === "excel" ? downloadCommentsExcel : downloadCommentsCSV;
+      const fetcher =
+        type === "excel" ? downloadCommentsExcel : downloadCommentsCSV;
       const response = await fetcher(project._id);
 
       const ext = type === "excel" ? "xlsx" : "csv";
@@ -165,7 +206,9 @@ function ProjectManagement() {
     const matchesSearch =
       project.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       project.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      project.assignedToUsername?.toLowerCase().includes(searchTerm.toLowerCase());
+      project.assignedToUsername
+        ?.toLowerCase()
+        .includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter ? project.status === statusFilter : true;
     return matchesSearch && matchesStatus;
   });
@@ -207,8 +250,14 @@ function ProjectManagement() {
 
   // Get project stats
   const totalProjects = projects.length;
-  const totalComments = projects.reduce((sum, p) => sum + (p.totalComments || 0), 0);
-  const totalValidated = projects.reduce((sum, p) => sum + (p.validatedCount || 0), 0);
+  const totalComments = projects.reduce(
+    (sum, p) => sum + (p.totalComments || 0),
+    0
+  );
+  const totalValidated = projects.reduce(
+    (sum, p) => sum + (p.validatedCount || 0),
+    0
+  );
   const completionRate =
     totalComments > 0 ? Math.round((totalValidated / totalComments) * 100) : 0;
 
@@ -381,7 +430,9 @@ function ProjectManagement() {
                 <FolderOpen size={48} className="sm:text-[56px] text-gray-300" />
               </div>
               <h3 className="text-lg sm:text-xl font-semibold text-gray-700">
-                {projects.length === 0 ? "No Projects Yet" : "No matching projects"}
+                {projects.length === 0
+                  ? "No Projects Yet"
+                  : "No matching projects"}
               </h3>
               <p className="text-gray-500 text-sm sm:text-base mt-2 max-w-md">
                 {projects.length === 0
@@ -438,7 +489,10 @@ function ProjectManagement() {
                   <div className="space-y-2 text-xs sm:text-sm">
                     <div className="flex items-center justify-between">
                       <span className="text-gray-500 flex items-center gap-1.5">
-                        <Users size={13} className="sm:text-[14px] text-gray-400" />
+                        <Users
+                          size={13}
+                          className="sm:text-[14px] text-gray-400"
+                        />
                         Assigned to
                       </span>
                       <span
@@ -451,11 +505,15 @@ function ProjectManagement() {
 
                     <div className="flex items-center justify-between">
                       <span className="text-gray-500 flex items-center gap-1.5">
-                        <FileText size={13} className="sm:text-[14px] text-gray-400" />
+                        <FileText
+                          size={13}
+                          className="sm:text-[14px] text-gray-400"
+                        />
                         Progress
                       </span>
                       <span className="font-medium text-gray-700">
-                        {project.validatedCount || 0} / {project.totalComments || 0}
+                        {project.validatedCount || 0} /{" "}
+                        {project.totalComments || 0}
                       </span>
                     </div>
 
@@ -465,14 +523,20 @@ function ProjectManagement() {
                         <div
                           className={`h-1.5 sm:h-2 rounded-full transition-all duration-700 ease-out ${
                             project.totalComments > 0 &&
-                            (project.validatedCount || 0) / project.totalComments === 1
+                            (project.validatedCount || 0) /
+                              project.totalComments ===
+                              1
                               ? "bg-green-500"
                               : "bg-blue-500"
                           }`}
                           style={{
                             width:
                               project.totalComments > 0
-                                ? `${((project.validatedCount || 0) / project.totalComments) * 100}%`
+                                ? `${
+                                    ((project.validatedCount || 0) /
+                                      project.totalComments) *
+                                    100
+                                  }%`
                                 : "0%",
                           }}
                         />
@@ -480,7 +544,9 @@ function ProjectManagement() {
                       <span className="absolute right-0 -top-4 text-[10px] font-medium text-gray-400">
                         {project.totalComments > 0
                           ? `${Math.round(
-                              ((project.validatedCount || 0) / project.totalComments) * 100
+                              ((project.validatedCount || 0) /
+                                project.totalComments) *
+                                100
                             )}%`
                           : "0%"}
                       </span>
@@ -489,6 +555,32 @@ function ProjectManagement() {
 
                   {/* Action Buttons */}
                   <div className="flex justify-end gap-1.5 mt-4 pt-3.5 border-t border-gray-100">
+                    {/* Edit Project — Admin only */}
+                    {isAdmin && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingProject(project);
+                        }}
+                        className="p-2 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded-lg transition-all duration-200"
+                        title="Edit Project"
+                      >
+                        <FolderEdit size={17} className="sm:text-[18px]" />
+                      </button>
+                    )}
+
+                    {/* Version History */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setHistoryProject(project);
+                      }}
+                      className="p-2 text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-all duration-200"
+                      title="Version History"
+                    >
+                      <History size={17} className="sm:text-[18px]" />
+                    </button>
+
                     {/* Download CSV — Admin only */}
                     {isAdmin && project.totalComments > 0 && (
                       <button
@@ -501,8 +593,12 @@ function ProjectManagement() {
                         }`}
                         title="Download CSV"
                       >
-                        {downloading.id === project._id && downloading.type === "csv" ? (
-                          <Loader2 size={17} className="sm:text-[18px] animate-spin" />
+                        {downloading.id === project._id &&
+                        downloading.type === "csv" ? (
+                          <Loader2
+                            size={17}
+                            className="sm:text-[18px] animate-spin"
+                          />
                         ) : (
                           <Download size={17} className="sm:text-[18px]" />
                         )}
@@ -521,10 +617,17 @@ function ProjectManagement() {
                         }`}
                         title="Download Excel"
                       >
-                        {downloading.id === project._id && downloading.type === "excel" ? (
-                          <Loader2 size={17} className="sm:text-[18px] animate-spin" />
+                        {downloading.id === project._id &&
+                        downloading.type === "excel" ? (
+                          <Loader2
+                            size={17}
+                            className="sm:text-[18px] animate-spin"
+                          />
                         ) : (
-                          <FileSpreadsheet size={17} className="sm:text-[18px]" />
+                          <FileSpreadsheet
+                            size={17}
+                            className="sm:text-[18px]"
+                          />
                         )}
                       </button>
                     )}
@@ -557,7 +660,10 @@ function ProjectManagement() {
                         title="Delete Project"
                       >
                         {deletingId === project._id ? (
-                          <Loader2 size={17} className="sm:text-[18px] animate-spin" />
+                          <Loader2
+                            size={17}
+                            className="sm:text-[18px] animate-spin"
+                          />
                         ) : (
                           <Trash2 size={17} className="sm:text-[18px]" />
                         )}
@@ -576,6 +682,33 @@ function ProjectManagement() {
             onClose={() => setShowCreateModal(false)}
             users={users}
             onProjectCreated={handleProjectCreated}
+          />
+        )}
+
+        {/* Edit Project Modal */}
+        {editingProject && (
+          <EditProjectModal
+            isOpen={!!editingProject}
+            onClose={() => setEditingProject(null)}
+            project={editingProject}
+            users={users}
+            onSubmit={handleEditProject}
+            isLoading={editLoading}
+          />
+        )}
+
+        {/* Version History Modal */}
+        {historyProject && (
+          <VersionHistoryModal
+            isOpen={!!historyProject}
+            onClose={() => setHistoryProject(null)}
+            entityType="Project"
+            entityId={historyProject._id}
+            entityName={historyProject.name}
+            onReverted={async () => {
+              await queryClient.invalidateQueries({ queryKey: ["projects"] });
+              await refetch();
+            }}
           />
         )}
       </div>
