@@ -2,33 +2,57 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute";
 
-// Placeholder pages — we'll replace these next steps
-function LoginPage() {
-  return <div className="p-6">Login page — coming next</div>;
+// auth Pages
+import LoginPage from "./pages/auth/LoginPage";
+import BootstrapPage from "./pages/auth/BootstrapPage";
+
+// Pages
+import DashboardPage from "./pages/DashboardPage";
+
+import PublicLayout from "./layouts/PublicLayout";
+
+// Placeholders — real pages come next
+function DatasetsPage() {
+  return <div>Datasets — coming next</div>;
 }
-function BootstrapPage() {
-  return <div className="p-6">Bootstrap page — coming next</div>;
+function CommentsPage() {
+  return <div>Comments — coming next</div>;
 }
-function HomePage() {
-  return <div className="p-6">Home — coming next</div>;
+function AnnotatePage() {
+  return <div>Annotate — coming next</div>;
+}
+function UsersPage() {
+  return <div>Users — coming next</div>;
 }
 
 export default function App() {
   return (
     <Routes>
-      {/* Public routes */}
+      {/* Public */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/bootstrap" element={<BootstrapPage />} />
 
-      {/* Protected routes */}
+      {/* Protected — everything inside Layout */}
       <Route
-        path="/"
         element={
           <ProtectedRoute>
-            <HomePage />
+            <PublicLayout />
           </ProtectedRoute>
         }
-      />
+      >
+        <Route path="/" element={<DashboardPage />} />
+        <Route path="/datasets" element={<DatasetsPage />} />
+        <Route path="/comments" element={<CommentsPage />} />
+        <Route path="/annotate" element={<AnnotatePage />} />
+        <Route
+          path="/users"
+          element={
+            <ProtectedRoute adminOnly>
+              <UsersPage />
+            </ProtectedRoute>
+          }
+        />
+      </Route>
 
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,0 +1,97 @@
+
+import { useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
+import { useAuth } from "../../context/useAuth";
+
+export default function LoginPage() {
+  const navigate = useNavigate();
+  const { login } = useAuth();
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      await login(email, password);
+      navigate("/", { replace: true });
+    } catch (err) {
+      setError(err?.response?.data?.error || err.message || "Login failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-base-200 p-4">
+      <div className="card w-full max-w-sm bg-base-100 shadow-xl">
+        <div className="card-body">
+          <h2 className="card-title text-2xl justify-center mb-2">Login</h2>
+          <p className="text-center text-sm text-base-content/60 mb-4">
+            Annotator Dashboard
+          </p>
+
+          {error && (
+            <div className="alert alert-error text-sm py-2">
+              <span>{error}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <div className="form-control">
+              <label className="label">
+                <span className="label-text">Email</span>
+              </label>
+              <input
+                type="email"
+                className="input input-bordered w-full"
+                placeholder="admin@test.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                autoFocus
+              />
+            </div>
+
+            <div className="form-control">
+              <label className="label">
+                <span className="label-text">Password</span>
+              </label>
+              <input
+                type="password"
+                className="input input-bordered w-full"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="btn btn-primary w-full mt-2"
+              disabled={loading}
+            >
+              {loading ? (
+                <span className="loading loading-spinner loading-sm" />
+              ) : (
+                "Login"
+              )}
+            </button>
+          </form>
+
+          <div className="divider text-xs my-2">OR</div>
+
+          <Link to="/bootstrap" className="btn btn-ghost btn-sm w-full">
+            First time? Create admin
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
