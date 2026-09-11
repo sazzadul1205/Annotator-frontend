@@ -1,6 +1,7 @@
 
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { LogIn, UserPlus } from "lucide-react";
 import { useAuth } from "../../context/useAuth";
 
 export default function LoginPage() {
@@ -19,7 +20,7 @@ export default function LoginPage() {
 
     try {
       await login(email, password);
-      navigate("/", { replace: true });
+      navigate("/datasets", { replace: true });
     } catch (err) {
       setError(err?.response?.data?.error || err.message || "Login failed");
     } finally {
@@ -74,20 +75,27 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              className="btn btn-primary w-full mt-2"
+              className="btn btn-primary w-full mt-2 gap-2"
               disabled={loading}
             >
               {loading ? (
                 <span className="loading loading-spinner loading-sm" />
               ) : (
-                "Login"
+                <>
+                  <LogIn className="w-4 h-4" />
+                  Login
+                </>
               )}
             </button>
           </form>
 
           <div className="divider text-xs my-2">OR</div>
 
-          <Link to="/bootstrap" className="btn btn-ghost btn-sm w-full">
+          <Link
+            to="/bootstrap"
+            className="btn btn-ghost btn-sm w-full gap-1"
+          >
+            <UserPlus className="w-3.5 h-3.5" />
             First time? Create admin
           </Link>
         </div>

@@ -15,6 +15,11 @@ export const getDataset = (id) =>
 export const renameDataset = (id, data) =>
   api.patch(`/datasets/${id}`, data, authHeader()).then((r) => r.data);
 
+export const assignDataset = (id, assignedTo) =>
+  api
+    .patch(`/datasets/${id}/assign`, { assignedTo }, authHeader())
+    .then((r) => r.data);
+
 export const deleteDataset = (id) =>
   api.delete(`/datasets/${id}`, authHeader()).then((r) => r.data);
 

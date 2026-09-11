@@ -2,28 +2,14 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import ProtectedRoute from "./components/ProtectedRoute";
 
-// auth Pages
 import LoginPage from "./pages/auth/LoginPage";
 import BootstrapPage from "./pages/auth/BootstrapPage";
 
-// Pages
-import DashboardPage from "./pages/DashboardPage";
+import DatasetsPage from "./pages/DatasetsPage";
+import DatasetDetailPage from "./pages/DatasetDetailPage";
+import UsersPage from "./pages/UsersPage";
 
 import PublicLayout from "./layouts/PublicLayout";
-
-// Placeholders — real pages come next
-function DatasetsPage() {
-  return <div>Datasets — coming next</div>;
-}
-function CommentsPage() {
-  return <div>Comments — coming next</div>;
-}
-function AnnotatePage() {
-  return <div>Annotate — coming next</div>;
-}
-function UsersPage() {
-  return <div>Users — coming next</div>;
-}
 
 export default function App() {
   return (
@@ -32,7 +18,7 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/bootstrap" element={<BootstrapPage />} />
 
-      {/* Protected — everything inside Layout */}
+      {/* Protected */}
       <Route
         element={
           <ProtectedRoute>
@@ -40,10 +26,10 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        <Route path="/" element={<DashboardPage />} />
+        {/* Landing goes straight to datasets */}
+        <Route path="/" element={<Navigate to="/datasets" replace />} />
         <Route path="/datasets" element={<DatasetsPage />} />
-        <Route path="/comments" element={<CommentsPage />} />
-        <Route path="/annotate" element={<AnnotatePage />} />
+        <Route path="/datasets/:id" element={<DatasetDetailPage />} />
         <Route
           path="/users"
           element={

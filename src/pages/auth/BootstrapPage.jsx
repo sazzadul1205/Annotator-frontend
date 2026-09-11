@@ -1,6 +1,7 @@
 // src/pages/BootstrapPage.jsx
 import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { ShieldCheck, LogIn } from "lucide-react";
 import { getBootstrapStatus, bootstrapAdmin } from "../../services/authApi";
 
 export default function BootstrapPage() {
@@ -153,20 +154,24 @@ export default function BootstrapPage() {
 
             <button
               type="submit"
-              className="btn btn-primary w-full mt-2"
+              className="btn btn-primary w-full mt-2 gap-2"
               disabled={loading}
             >
               {loading ? (
                 <span className="loading loading-spinner loading-sm" />
               ) : (
-                "Create Admin"
+                <>
+                  <ShieldCheck className="w-4 h-4" />
+                  Create Admin
+                </>
               )}
             </button>
           </form>
 
           <div className="divider text-xs my-2">OR</div>
 
-          <Link to="/login" className="btn btn-ghost btn-sm w-full">
+          <Link to="/login" className="btn btn-ghost btn-sm w-full gap-1">
+            <LogIn className="w-3.5 h-3.5" />
             Already have an account? Login
           </Link>
         </div>
