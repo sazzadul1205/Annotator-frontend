@@ -1,6 +1,7 @@
-// src/pages/BootstrapPage.jsx
+// src/pages/auth/BootstrapPage.jsx
 import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import { useForm, useWatch } from "react-hook-form";
 import { ShieldCheck, LogIn } from "lucide-react";
 import { getBootstrapStatus, bootstrapAdmin } from "../../services/authApi";
 
@@ -9,37 +10,41 @@ export default function BootstrapPage() {
 
   const [checking, setChecking] = useState(true);
   const [adminExists, setAdminExists] = useState(false);
-
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState("");
+  const [serverError, setServerError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Check if an admin already exists on page load
+  const {
+    register,
+    handleSubmit,
+    control,
+    formState: { errors },
+  } = useForm({
+    defaultValues: {
+      name: "",
+      email: "",
+      password: "",
+      confirmPassword: "",
+    },
+  });
+
+  // useWatch is the memoization-safe way to read live field values
+  const password = useWatch({ control, name: "password" });
+
   useEffect(() => {
     getBootstrapStatus()
       .then((res) => setAdminExists(res.adminCount > 0))
-      .catch(() => setAdminExists(true)) // fail safe
+      .catch(() => setAdminExists(true))
       .finally(() => setChecking(false));
   }, []);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError("");
-
-    if (password !== confirmPassword) {
-      setError("Password and Confirm Password do not match");
-      return;
-    }
-
+  const onSubmit = async (values) => {
+    setServerError("");
     setLoading(true);
     try {
-      await bootstrapAdmin({ name, email, password, confirmPassword });
+      await bootstrapAdmin(values);
       navigate("/login", { replace: true });
     } catch (err) {
-      setError(
+      setServerError(
         err?.response?.data?.error || err.message || "Bootstrap failed",
       );
     } finally {
@@ -47,7 +52,6 @@ export default function BootstrapPage() {
     }
   };
 
-  // Loading state while checking
   if (checking) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -56,7 +60,6 @@ export default function BootstrapPage() {
     );
   }
 
-  // If an admin already exists, don't allow bootstrap
   if (adminExists) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-base-200 p-4">
@@ -75,7 +78,6 @@ export default function BootstrapPage() {
     );
   }
 
-  // Bootstrap form
   return (
     <div className="min-h-screen flex items-center justify-center bg-base-200 p-4">
       <div className="card w-full max-w-sm bg-base-100 shadow-xl">
@@ -87,13 +89,13 @@ export default function BootstrapPage() {
             First-time setup
           </p>
 
-          {error && (
+          {serverError && (
             <div className="alert alert-error text-sm py-2">
-              <span>{error}</span>
+              <span>{serverError}</span>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-3">
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
             <div className="form-control">
               <label className="label">
                 <span className="label-text">Name</span>
@@ -102,10 +104,15 @@ export default function BootstrapPage() {
                 type="text"
                 className="input input-bordered w-full"
                 placeholder="Root Admin"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
+                {...register("name", { required: "Name is required" })}
               />
+              {errors.name && (
+                <label className="label">
+                  <span className="label-text-alt text-error">
+                    {errors.name.message}
+                  </span>
+                </label>
+              )}
             </div>
 
             <div className="form-control">
@@ -116,10 +123,21 @@ export default function BootstrapPage() {
                 type="email"
                 className="input input-bordered w-full"
                 placeholder="admin@test.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
+                {...register("email", {
+                  required: "Email is required",
+                  pattern: {
+                    value: /^\S+@\S+\.\S+$/,
+                    message: "Invalid email",
+                  },
+                })}
               />
+              {errors.email && (
+                <label className="label">
+                  <span className="label-text-alt text-error">
+                    {errors.email.message}
+                  </span>
+                </label>
+              )}
             </div>
 
             <div className="form-control">
@@ -130,11 +148,21 @@ export default function BootstrapPage() {
                 type="password"
                 className="input input-bordered w-full"
                 placeholder="At least 8 characters"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                minLength={8}
-                required
+                {...register("password", {
+                  required: "Password is required",
+                  minLength: {
+                    value: 8,
+                    message: "Must be at least 8 characters",
+                  },
+                })}
               />
+              {errors.password && (
+                <label className="label">
+                  <span className="label-text-alt text-error">
+                    {errors.password.message}
+                  </span>
+                </label>
+              )}
             </div>
 
             <div className="form-control">
@@ -145,11 +173,19 @@ export default function BootstrapPage() {
                 type="password"
                 className="input input-bordered w-full"
                 placeholder="Repeat password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                minLength={8}
-                required
+                {...register("confirmPassword", {
+                  required: "Please confirm the password",
+                  validate: (v) =>
+                    v === password || "Passwords do not match",
+                })}
               />
+              {errors.confirmPassword && (
+                <label className="label">
+                  <span className="label-text-alt text-error">
+                    {errors.confirmPassword.message}
+                  </span>
+                </label>
+              )}
             </div>
 
             <button

@@ -20,6 +20,11 @@ export const assignDataset = (id, assignedTo) =>
     .patch(`/datasets/${id}/assign`, { assignedTo }, authHeader())
     .then((r) => r.data);
 
+export const duplicateDataset = (id, name) =>
+  api
+    .post(`/datasets/${id}/duplicate`, { name }, authHeader())
+    .then((r) => r.data);
+
 export const deleteDataset = (id) =>
   api.delete(`/datasets/${id}`, authHeader()).then((r) => r.data);
 

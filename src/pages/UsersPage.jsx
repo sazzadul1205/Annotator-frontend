@@ -1,12 +1,19 @@
-// src/pages/UsersPage.jsx
+
+// React
 import { useState } from "react";
+import { useForm, useWatch } from "react-hook-form";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
+// Icons
 import {
-  UserPlus,
+  X,
   Power,
-  KeyRound,
   Trash2,
+  UserPlus,
+  KeyRound,
 } from "lucide-react";
+
+// Services
 import {
   listUsers,
   createUser,
@@ -14,17 +21,28 @@ import {
   resetUserPassword,
   deleteUser,
 } from "../services/userApi";
+
+// Context
 import { useAuth } from "../context/useAuth";
 
-export default function UsersPage() {
+// Lib
+import {
+  alertSuccess,
+  alertError,
+  confirmAction,
+  confirmDelete,
+} from "../lib/swal";
+
+
+function UsersPage() {
   const { user: me } = useAuth();
   const queryClient = useQueryClient();
 
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  // Modal and selected user state
   const [showCreate, setShowCreate] = useState(false);
+  const [resetTarget, setResetTarget] = useState(null);
 
-  // ---- Load users ----
+  // Fetch all users
   const { data, isLoading, error: listError } = useQuery({
     queryKey: ["users"],
     queryFn: listUsers,
@@ -32,83 +50,67 @@ export default function UsersPage() {
 
   const users = data?.users || [];
 
+  // Refresh the users list
   const invalidate = () =>
     queryClient.invalidateQueries({ queryKey: ["users"] });
 
-  // ---- Toggle status ----
+  // Toggle user active/inactive status
   const toggleMutation = useMutation({
     mutationFn: (id) => toggleUserStatus(id),
     onSuccess: (res) => {
-      setSuccess(res.message);
-      setError("");
+      alertSuccess("Done", res.message);
       invalidate();
-      setTimeout(() => setSuccess(""), 2500);
     },
     onError: (err) => {
-      setError(err?.response?.data?.error || err.message);
+      alertError("Update failed", err?.response?.data?.error || err.message);
     },
   });
 
-  // ---- Reset password ----
-  const resetMutation = useMutation({
-    mutationFn: ({ id, newPassword, confirmPassword }) =>
-      resetUserPassword(id, { newPassword, confirmPassword }),
-    onSuccess: () => {
-      setSuccess("Password reset successfully.");
-      setError("");
-      setTimeout(() => setSuccess(""), 2500);
-    },
-    onError: (err) => {
-      setError(err?.response?.data?.error || err.message);
-    },
-  });
-
-  // ---- Delete ----
+  // Delete a user
   const deleteMutation = useMutation({
     mutationFn: (id) => deleteUser(id),
     onSuccess: () => {
-      setSuccess("User deleted.");
-      setError("");
+      alertSuccess("Done", "User deleted.");
       invalidate();
-      setTimeout(() => setSuccess(""), 2500);
     },
     onError: (err) => {
-      setError(err?.response?.data?.error || err.message);
+      alertError("Delete failed", err?.response?.data?.error || err.message);
     },
   });
 
-  // ---- Handlers ----
-  const handleToggle = (u) => {
-    const msg = u.isActive
-      ? `Deactivate ${u.name}? They won't be able to log in.`
-      : `Activate ${u.name}?`;
-    if (window.confirm(msg)) toggleMutation.mutate(u._id);
+  // Confirm and toggle a user's status
+  const handleToggle = async (u) => {
+    const title = u.isActive ? `Deactivate ${u.name}?` : `Activate ${u.name}?`;
+    const text = u.isActive
+      ? "They will no longer be able to log in."
+      : "They will be able to log in again.";
+
+    const ok = await confirmAction(
+      title,
+      text,
+      u.isActive ? "Deactivate" : "Activate",
+    );
+
+    if (ok) toggleMutation.mutate(u._id);
   };
 
-  const handleReset = (u) => {
-    const newPassword = window.prompt(`New password for ${u.name} (min 8 chars):`);
-    if (!newPassword) return;
-    if (newPassword.length < 8) {
-      setError("Password must be at least 8 characters.");
-      return;
-    }
-    const confirmPassword = window.prompt("Confirm password:");
-    if (confirmPassword !== newPassword) {
-      setError("Passwords do not match.");
-      return;
-    }
-    resetMutation.mutate({ id: u._id, newPassword, confirmPassword });
-  };
-
-  const handleDelete = (u) => {
+  // Confirm and delete a user
+  const handleDelete = async (u) => {
+    // Prevent the current user from deleting themselves
     if (u._id === me?._id) return;
-    if (window.confirm(`Permanently delete ${u.name}? This cannot be undone.`)) {
-      deleteMutation.mutate(u._id);
-    }
-  };
 
+    const ok = await confirmDelete(
+      `Delete ${u.name}?`,
+      "This action cannot be undone.",
+    );
+
+    if (ok) deleteMutation.mutate(u._id);
+  };
+  
   return (
     <div>
+
+      {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-semibold">Users</h1>
         <button
@@ -120,18 +122,7 @@ export default function UsersPage() {
         </button>
       </div>
 
-      {error && (
-        <div className="alert alert-error text-sm py-2 mb-3">
-          <span>{error}</span>
-        </div>
-      )}
-      {success && (
-        <div className="alert alert-success text-sm py-2 mb-3">
-          <span>{success}</span>
-        </div>
-      )}
-
-      {/* Users table */}
+      {/* Table */}
       <div className="card bg-base-100 shadow-sm">
         <div className="card-body">
           {isLoading && (
@@ -182,8 +173,8 @@ export default function UsersPage() {
                         <td>
                           <span
                             className={`badge badge-sm ${u.role === "admin"
-                                ? "badge-primary"
-                                : "badge-secondary"
+                              ? "badge-primary"
+                              : "badge-secondary"
                               }`}
                           >
                             {u.role}
@@ -203,7 +194,7 @@ export default function UsersPage() {
                         <td className="text-right whitespace-nowrap">
                           <button
                             className="btn btn-xs btn-ghost gap-1"
-                            onClick={() => handleReset(u)}
+                            onClick={() => setResetTarget(u)}
                           >
                             <KeyRound className="w-3.5 h-3.5" />
                             Reset Pwd
@@ -235,37 +226,60 @@ export default function UsersPage() {
         </div>
       </div>
 
-      {/* Create user modal */}
+      {/* Create User */}
       {showCreate && (
         <CreateUserModal
           onClose={() => setShowCreate(false)}
           onCreated={() => {
             setShowCreate(false);
-            setSuccess("User created.");
+            alertSuccess("Done", "User created.");
             invalidate();
-            setTimeout(() => setSuccess(""), 2500);
           }}
-          onError={(msg) => setError(msg)}
+          onError={(msg) => alertError("Create failed", msg)}
+        />
+      )}
+
+      {/* Reset Password */}
+      {resetTarget && (
+        <ResetPasswordModal
+          user={resetTarget}
+          onClose={() => setResetTarget(null)}
+          onDone={(msg) => {
+            setResetTarget(null);
+            alertSuccess("Done", msg);
+          }}
+          onError={(msg) => alertError("Reset failed", msg)}
         />
       )}
     </div>
   );
 }
 
-// ---------- Create User Modal ----------
+export default UsersPage;
 
+// Create User Modal
 function CreateUserModal({ onClose, onCreated, onError }) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [role, setRole] = useState("annotator");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  // Form hooks
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm({
+    defaultValues: {
+      name: "",
+      email: "",
+      password: "",
+      role: "annotator",
+    },
+  });
+
+  // On submit
+  const onSubmit = async (values) => {
     setLoading(true);
     try {
-      await createUser({ name, email, password, role });
+      await createUser(values);
       onCreated();
     } catch (err) {
       onError(err?.response?.data?.error || err.message);
@@ -275,10 +289,27 @@ function CreateUserModal({ onClose, onCreated, onError }) {
 
   return (
     <div className="modal modal-open">
-      <div className="modal-box">
-        <h3 className="font-bold text-lg mb-4">Create User</h3>
 
-        <form onSubmit={handleSubmit} className="space-y-3">
+      {/* Modal */}
+      <div className="modal-box">
+
+        {/* Modal Header */}
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-lg flex items-center gap-2">
+            <UserPlus className="w-5 h-5" />
+            Create User
+          </h3>
+          <button
+            className="btn btn-sm btn-ghost btn-circle"
+            onClick={onClose}
+            disabled={loading}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
           <div className="form-control">
             <label className="label">
               <span className="label-text">Name</span>
@@ -286,11 +317,16 @@ function CreateUserModal({ onClose, onCreated, onError }) {
             <input
               type="text"
               className="input input-bordered w-full"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
               autoFocus
+              {...register("name", { required: "Name is required" })}
             />
+            {errors.name && (
+              <label className="label">
+                <span className="label-text-alt text-error">
+                  {errors.name.message}
+                </span>
+              </label>
+            )}
           </div>
 
           <div className="form-control">
@@ -300,10 +336,21 @@ function CreateUserModal({ onClose, onCreated, onError }) {
             <input
               type="email"
               className="input input-bordered w-full"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
+              {...register("email", {
+                required: "Email is required",
+                pattern: {
+                  value: /^\S+@\S+\.\S+$/,
+                  message: "Invalid email",
+                },
+              })}
             />
+            {errors.email && (
+              <label className="label">
+                <span className="label-text-alt text-error">
+                  {errors.email.message}
+                </span>
+              </label>
+            )}
           </div>
 
           <div className="form-control">
@@ -313,12 +360,22 @@ function CreateUserModal({ onClose, onCreated, onError }) {
             <input
               type="password"
               className="input input-bordered w-full"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              minLength={8}
               placeholder="At least 8 characters"
-              required
+              {...register("password", {
+                required: "Password is required",
+                minLength: {
+                  value: 8,
+                  message: "Must be at least 8 characters",
+                },
+              })}
             />
+            {errors.password && (
+              <label className="label">
+                <span className="label-text-alt text-error">
+                  {errors.password.message}
+                </span>
+              </label>
+            )}
           </div>
 
           <div className="form-control">
@@ -327,8 +384,7 @@ function CreateUserModal({ onClose, onCreated, onError }) {
             </label>
             <select
               className="select select-bordered w-full"
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
+              {...register("role", { required: true })}
             >
               <option value="annotator">Annotator</option>
               <option value="admin">Admin</option>
@@ -346,18 +402,175 @@ function CreateUserModal({ onClose, onCreated, onError }) {
             </button>
             <button
               type="submit"
-              className="btn btn-primary"
+              className="btn btn-primary gap-2"
               disabled={loading}
             >
               {loading ? (
                 <span className="loading loading-spinner loading-sm" />
               ) : (
-                "Create"
+                <>
+                  <UserPlus className="w-4 h-4" />
+                  Create
+                </>
               )}
             </button>
           </div>
         </form>
       </div>
+
+      {/* Modal backdrop */}
+      <div
+        className="modal-backdrop"
+        onClick={loading ? undefined : onClose}
+        aria-hidden="true"
+      />
+    </div>
+  );
+}
+
+// Reset Password Modal
+function ResetPasswordModal({ user, onClose, onDone, onError }) {
+  const [loading, setLoading] = useState(false);
+
+  // Form hooks
+  const {
+    register,
+    handleSubmit,
+    control,
+    formState: { errors },
+  } = useForm({
+    defaultValues: {
+      newPassword: "",
+      confirmPassword: "",
+    },
+  });
+
+  // Watch new password
+  const newPassword = useWatch({ control, name: "newPassword" });
+
+  // On submit
+  const onSubmit = async (values) => {
+    setLoading(true);
+    try {
+      await resetUserPassword(user._id, values);
+      onDone("Password reset successfully.");
+    } catch (err) {
+      onError(err?.response?.data?.error || err.message);
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="modal modal-open">
+      {/* Modal */}
+      <div className="modal-box">
+
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-lg flex items-center gap-2">
+            <KeyRound className="w-5 h-5" />
+            Reset Password
+          </h3>
+          <button
+            className="btn btn-sm btn-ghost btn-circle"
+            onClick={onClose}
+            disabled={loading}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* User */}
+        <p className="text-sm text-base-content/70 mb-4">
+          For <strong>{user.name}</strong> ({user.email})
+        </p>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text">New Password</span>
+            </label>
+            <input
+              type="password"
+              className="input input-bordered w-full"
+              placeholder="At least 8 characters"
+              autoComplete="new-password"
+              autoFocus
+              {...register("newPassword", {
+                required: "Password is required",
+                minLength: {
+                  value: 8,
+                  message: "Must be at least 8 characters",
+                },
+              })}
+            />
+            {errors.newPassword && (
+              <label className="label">
+                <span className="label-text-alt text-error">
+                  {errors.newPassword.message}
+                </span>
+              </label>
+            )}
+          </div>
+
+          <div className="form-control">
+            <label className="label">
+              <span className="label-text">Confirm Password</span>
+            </label>
+            <input
+              type="password"
+              className="input input-bordered w-full"
+              placeholder="Repeat password"
+              autoComplete="new-password"
+              {...register("confirmPassword", {
+                required: "Please confirm the password",
+                validate: (v) =>
+                  v === newPassword || "Passwords do not match",
+              })}
+            />
+            {errors.confirmPassword && (
+              <label className="label">
+                <span className="label-text-alt text-error">
+                  {errors.confirmPassword.message}
+                </span>
+              </label>
+            )}
+          </div>
+
+          <div className="modal-action">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={onClose}
+              disabled={loading}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary gap-2"
+              disabled={loading}
+            >
+              {loading ? (
+                <span className="loading loading-spinner loading-sm" />
+              ) : (
+                <>
+                  <KeyRound className="w-4 h-4" />
+                  Reset Password
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Backdrop */}
+      <div
+        className="modal-backdrop"
+        onClick={loading ? undefined : onClose}
+        aria-hidden="true"
+      />
     </div>
   );
 }

@@ -2,6 +2,13 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { LayoutGrid, Users, LogOut, Tag } from "lucide-react";
 import { useAuth } from "../context/useAuth";
+import {
+  alertSuccess,
+  alertError,
+  confirmAction,
+  confirmDelete,
+  promptPasswordReset,
+} from "../lib/swal";
 
 const linkClass = ({ isActive }) =>
   `flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium ${isActive

@@ -1,5 +1,12 @@
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../context/useAuth";
+import {
+  alertSuccess,
+  alertError,
+  confirmAction,
+  confirmDelete,
+  promptPasswordReset,
+} from "../lib/swal";
 
 export default function ProtectedRoute({ children, adminOnly = false }) {
   const { loading, isAuthenticated, isAdmin } = useAuth();
