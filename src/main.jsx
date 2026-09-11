@@ -9,17 +9,18 @@ import './index.css';
 // Components
 import App from './App.jsx';
 import { AuthProvider } from './context/AuthProvider.jsx';
+import HealthGate from './components/HealthGate.jsx';
 
 const queryClient = new QueryClient();
 
 createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+  <QueryClientProvider client={queryClient}>
+    <BrowserRouter>
+      <HealthGate>
         <AuthProvider>
           <App />
         </AuthProvider>
-      </BrowserRouter>
-    </QueryClientProvider>
-  </StrictMode>,
+      </HealthGate>
+    </BrowserRouter>
+  </QueryClientProvider>
 );

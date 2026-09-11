@@ -1,23 +1,24 @@
-import react from '@vitejs/plugin-react'
-import { defineConfig, loadEnv } from 'vite'
-import tailwindcss from '@tailwindcss/vite'
+import react from "@vitejs/plugin-react";
+import { defineConfig, loadEnv } from "vite";
+import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, import.meta.dirname, '')
+  const env = loadEnv(mode, import.meta.dirname, "");
 
   return {
-    plugins: [
-      tailwindcss(),
-      react(),
-    ],
+    plugins: [tailwindcss(), react()],
 
     server: {
       proxy: {
-        '/api': {
+        "/api": {
+          target: env.VITE_API_URL,
+          changeOrigin: true,
+        },
+        "/health": {
           target: env.VITE_API_URL,
           changeOrigin: true,
         },
       },
     },
-  }
-})
+  };
+});

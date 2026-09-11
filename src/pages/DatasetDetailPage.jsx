@@ -68,7 +68,6 @@ export default function DatasetDetailPage() {
   const dataset = dsData?.dataset;
   const summary = dsData?.summary || { total: 0, pending: 0, annotated: 0 };
 
-  // Calculate annotation progress percentage
   const progressPct =
     summary.total > 0
       ? Math.round((summary.annotated / summary.total) * 100)
@@ -81,15 +80,12 @@ export default function DatasetDetailPage() {
     enabled: isAdmin,
   });
 
-  // Get all annotators
   const annotators = (usersData?.users || []).filter(
     (u) => u.role === "annotator",
   );
 
-  // Get the current dataset assignee's name
   const assigneeName = () => {
     if (!dataset?.assignedTo) return "Unassigned";
-
     const u = annotators.find((x) => x._id === dataset.assignedTo);
     return u ? u.name : "(removed)";
   };
@@ -104,7 +100,6 @@ export default function DatasetDetailPage() {
     ...(search && { search }),
   };
 
-  // Fetch comments using the current filters and pagination
   const { data: commentsData, isLoading: loadingComments } = useQuery({
     queryKey: ["comments", params],
     queryFn: () => listComments(params),
@@ -114,7 +109,6 @@ export default function DatasetDetailPage() {
   const comments = commentsData?.comments || [];
   const total = commentsData?.total || 0;
   const totalPages = commentsData?.totalPages || 1;
-
 
   // Update unsaved changes for a specific comment
   const setRow = (commentId, patch) => {
@@ -127,22 +121,18 @@ export default function DatasetDetailPage() {
   // Get the current values for a comment
   const resolveRow = (c) => {
     const local = rows[c._id] || {};
-
     return {
-      // Use local changes first, otherwise use the saved value
       sentiment:
         local.sentiment ??
         (["positive", "negative", "neutral"].includes(c.sentiment)
           ? c.sentiment
           : ""),
-
       type:
         local.type ??
         (["bangla", "english", "banglish"].includes(c.type) ? c.type : ""),
     };
   };
 
-  // Remove unsaved changes for a comment
   const clearRow = (commentId) => {
     setRows((prev) => {
       const next = { ...prev };
@@ -151,48 +141,37 @@ export default function DatasetDetailPage() {
     });
   };
 
-  // Save annotation changes for a comment
   const handleSave = async (comment) => {
     const row = resolveRow(comment);
 
-    // Both fields are required before saving
     if (!row.sentiment || !row.type) {
       toast("Pick both sentiment and type", "warning");
       return;
     }
 
-    // Get the current valid values stored on the server
     const serverSentiment = ["positive", "negative", "neutral"].includes(
       comment.sentiment,
     )
       ? comment.sentiment
       : "";
-
     const serverType = ["bangla", "english", "banglish"].includes(comment.type)
       ? comment.type
       : "";
 
-    // Don't send a request if nothing actually changed
     if (row.sentiment === serverSentiment && row.type === serverType) {
       return;
     }
 
     try {
-      // Save the annotation
       await annotateComment(comment._id, {
         sentiment: row.sentiment,
         type: row.type,
       });
-
-      // Clear local changes after a successful save
       clearRow(comment._id);
-
-      // Refresh the affected data
       queryClient.invalidateQueries({ queryKey: ["dataset", id] });
       queryClient.invalidateQueries({ queryKey: ["comments"] });
     } catch (err) {
       clearRow(comment._id);
-
       alertError(
         "Save failed",
         err?.response?.data?.error || err.message || "Unknown error",
@@ -200,12 +179,9 @@ export default function DatasetDetailPage() {
     }
   };
 
-  // Assign the dataset to an annotator
   const handleAssign = async (assignedTo) => {
     try {
       await assignDataset(id, assignedTo);
-
-      // Refresh dataset and dataset list
       queryClient.invalidateQueries({ queryKey: ["dataset", id] });
       queryClient.invalidateQueries({ queryKey: ["datasets"] });
     } catch (err) {
@@ -216,19 +192,15 @@ export default function DatasetDetailPage() {
     }
   };
 
-  // Delete a comment and its version history
   const handleDelete = async (commentId) => {
     const ok = await confirmDelete(
       "Delete this comment?",
       "All its versions will also be removed. This cannot be undone.",
     );
-
     if (!ok) return;
 
     try {
       await deleteComment(commentId);
-
-      // Refresh comments and dataset summary
       queryClient.invalidateQueries({ queryKey: ["comments"] });
       queryClient.invalidateQueries({ queryKey: ["dataset", id] });
     } catch (err) {
@@ -239,31 +211,25 @@ export default function DatasetDetailPage() {
     }
   };
 
-  // Apply the search term and reset to the first page
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     setSearch(searchInput.trim());
     setPage(1);
   };
 
-  // Change page size and reset to the first page
   const handlePageSizeChange = (size) => {
     setPageSize(size);
     setPage(1);
   };
 
-  // Render
+  // ---------- Render ----------
 
-  // Show loading state while the dataset is being fetched
+  // Full-page skeleton while the dataset itself is loading
   if (loadingDs) {
-    return (
-      <div className="flex justify-center py-10">
-        <span className="loading loading-spinner loading-lg" />
-      </div>
-    );
+    return <DatasetDetailSkeleton isAdmin={isAdmin} />;
   }
 
-  // Show an error state if the dataset doesn't exist
+  // Not found
   if (!dataset) {
     return (
       <div className="text-center py-10">
@@ -293,6 +259,7 @@ export default function DatasetDetailPage() {
         </div>
       </div>
 
+      {/* Info + progress */}
       <div className="card bg-base-100 shadow-sm mb-4">
         <div className="card-body py-4">
           <div className="flex flex-wrap items-center gap-4 mb-3">
@@ -382,6 +349,7 @@ export default function DatasetDetailPage() {
         </div>
       </div>
 
+      {/* Filters */}
       <div className="card bg-base-100 shadow-sm mb-4">
         <div className="card-body py-3">
           <div className="flex flex-wrap gap-3 items-center">
@@ -437,21 +405,16 @@ export default function DatasetDetailPage() {
         </div>
       </div>
 
+      {/* Comments table */}
       <div className="card bg-base-100 shadow-sm">
         <div className="card-body">
-          {loadingComments && (
-            <div className="flex justify-center py-6">
-              <span className="loading loading-spinner" />
-            </div>
-          )}
-
-          {!loadingComments && comments.length === 0 && (
+          {loadingComments ? (
+            <CommentsTableSkeleton rows={pageSize > 20 ? 10 : pageSize} />
+          ) : comments.length === 0 ? (
             <p className="text-center text-base-content/60 py-6">
               No comments found.
             </p>
-          )}
-
-          {comments.length > 0 && (
+          ) : (
             <>
               <div>
                 <table className="table table-zebra table-sm">
@@ -528,8 +491,8 @@ export default function DatasetDetailPage() {
                           <td>
                             <span
                               className={`badge badge-sm ${c.status === "annotated"
-                                ? "badge-success"
-                                : "badge-warning"
+                                  ? "badge-success"
+                                  : "badge-warning"
                                 }`}
                             >
                               {c.status}
@@ -630,14 +593,122 @@ export default function DatasetDetailPage() {
   );
 }
 
+// Skeleton loaders
+
+function DatasetDetailSkeleton({ isAdmin }) {
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="w-full">
+          <div className="skeleton h-3 w-32 mb-2" />
+          <div className="skeleton h-7 w-64 mb-2" />
+          <div className="skeleton h-3 w-40" />
+        </div>
+      </div>
+
+      {/* Info + progress card */}
+      <div className="card bg-base-100 shadow-sm mb-4">
+        <div className="card-body py-4">
+          <div className="flex flex-wrap items-center gap-4 mb-3">
+            <div className="skeleton h-4 w-40" />
+            <div className="skeleton h-4 w-40" />
+            {isAdmin && <div className="skeleton h-8 w-36 ml-auto" />}
+          </div>
+
+          <div className="flex items-baseline justify-between mb-2">
+            <div className="skeleton h-3 w-32" />
+            <div className="skeleton h-3 w-24" />
+          </div>
+          <div className="skeleton h-3 w-full rounded-full" />
+          <div className="skeleton h-3 w-24 mt-2" />
+        </div>
+      </div>
+
+      {/* Filters card */}
+      <div className="card bg-base-100 shadow-sm mb-4">
+        <div className="card-body py-3">
+          <div className="flex flex-wrap gap-3 items-center">
+            <div className="skeleton h-8 w-32" />
+            <div className="skeleton h-4 w-28" />
+            <div className="skeleton h-8 w-64" />
+            <div className="skeleton h-4 w-24 ml-auto" />
+          </div>
+        </div>
+      </div>
+
+      {/* Comments card */}
+      <div className="card bg-base-100 shadow-sm">
+        <div className="card-body">
+          <CommentsTableSkeleton rows={8} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CommentsTableSkeleton({ rows = 8 }) {
+  const skeletonRows = Array.from({ length: rows });
+
+  return (
+    <div>
+      <table className="table table-zebra table-sm">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Comment</th>
+            <th>Sentiment</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th className="text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {skeletonRows.map((_, i) => (
+            <tr key={i}>
+              <td>
+                <div className="skeleton h-3 w-12" />
+              </td>
+              <td className="max-w-md">
+                <div className="skeleton h-3 w-full mb-1" />
+                <div className="skeleton h-3 w-2/3" />
+              </td>
+              <td>
+                <div className="skeleton h-6 w-28 rounded-md" />
+              </td>
+              <td>
+                <div className="skeleton h-6 w-24 rounded-md" />
+              </td>
+              <td>
+                <div className="skeleton h-5 w-20 rounded-full" />
+              </td>
+              <td className="text-right">
+                <div className="flex justify-end gap-1">
+                  <div className="skeleton h-6 w-16 rounded-md" />
+                  <div className="skeleton h-6 w-20 rounded-md" />
+                  <div className="skeleton h-6 w-14 rounded-md" />
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* Pagination skeleton */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
+        <div className="skeleton h-6 w-32" />
+        <div className="skeleton h-3 w-24" />
+        <div className="skeleton h-8 w-24 rounded-md" />
+      </div>
+    </div>
+  );
+}
+
 // Version history modal
 function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
   const queryClient = useQueryClient();
-
-  // Track which version is currently being restored
   const [restoringVersion, setRestoringVersion] = useState(null);
 
-  // Fetch the version history for this comment
   const { data, isLoading } = useQuery({
     queryKey: ["versions", commentId],
     queryFn: () => getCommentVersions(commentId),
@@ -646,7 +717,6 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
 
   const versions = data?.versions || [];
 
-  // Restore a previous version without deleting history
   const handleRestore = async (version) => {
     const ok = await confirmAction(
       `Restore from v${version}?`,
@@ -655,16 +725,12 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
       ". Your history is preserved — nothing is deleted.",
       "Restore",
     );
-
     if (!ok) return;
 
     setRestoringVersion(version);
 
     try {
-      // Restore the selected version
       await restoreCommentVersion(commentId, version);
-
-      // Refresh version and comment data
       await queryClient.invalidateQueries({
         queryKey: ["versions", commentId],
       });
@@ -672,10 +738,8 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
       await queryClient.invalidateQueries({
         queryKey: ["dataset", datasetId],
       });
-
       onRestored(`Restored from v${version}`);
     } catch (err) {
-      // Show restore errors
       alertError(
         "Restore failed",
         err?.response?.data?.error || err.message || "Unknown error",
@@ -693,7 +757,6 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
             <History className="w-5 h-5" />
             Version History
           </h3>
-
           <button
             className="btn btn-sm btn-ghost btn-circle"
             onClick={onClose}
@@ -702,30 +765,22 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
           </button>
         </div>
 
-        {/* Explain that restoring creates a new version */}
         <p className="text-xs text-base-content/50 mb-4">
           Restoring a version creates a new version. No history is deleted.
         </p>
 
-        {/* Loading state */}
-        {isLoading && (
-          <div className="flex justify-center py-6">
-            <span className="loading loading-spinner" />
-          </div>
-        )}
+        {/* Skeleton while loading versions */}
+        {isLoading && <HistoryListSkeleton rows={3} />}
 
-        {/* Empty history state */}
         {!isLoading && versions.length === 0 && (
           <p className="text-sm text-base-content/60 text-center py-4">
             No versions found.
           </p>
         )}
 
-        {/* Display all versions */}
         {versions.length > 0 && (
           <ul className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
             {versions.map((v, idx) => {
-              // The first version is the current version
               const isLatest = idx === 0;
               const isRestore = v.changeType === "restore";
 
@@ -733,13 +788,12 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
                 <li
                   key={v._id}
                   className={`border rounded-lg p-3 ${isLatest
-                    ? "border-primary bg-primary/5"
-                    : "border-base-300"
+                      ? "border-primary bg-primary/5"
+                      : "border-base-300"
                     }`}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex flex-wrap items-center gap-2">
-                      {/* Version number and current status */}
                       <span
                         className={`badge badge-sm ${isLatest ? "badge-primary" : ""
                           }`}
@@ -748,23 +802,21 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
                         {isLatest && " · current"}
                       </span>
 
-                      {/* Show what caused this version */}
                       <span
                         className={`badge badge-sm badge-outline ${v.changeType === "import"
-                          ? "badge-info"
-                          : v.changeType === "annotation"
-                            ? "badge-success"
-                            : v.changeType === "update"
-                              ? "badge-warning"
-                              : v.changeType === "restore"
-                                ? "badge-secondary"
-                                : ""
+                            ? "badge-info"
+                            : v.changeType === "annotation"
+                              ? "badge-success"
+                              : v.changeType === "update"
+                                ? "badge-warning"
+                                : v.changeType === "restore"
+                                  ? "badge-secondary"
+                                  : ""
                           }`}
                       >
                         {v.changeType}
                       </span>
 
-                      {/* Show which version was restored */}
                       {isRestore && v.restoredFrom && (
                         <span className="badge badge-sm badge-accent">
                           ← from v{v.restoredFrom}
@@ -772,7 +824,6 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
                       )}
                     </div>
 
-                    {/* Restore button for older versions */}
                     {!isLatest && (
                       <button
                         className="btn btn-xs btn-outline gap-1"
@@ -789,36 +840,29 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
                     )}
                   </div>
 
-                  {/* Version creation date */}
                   <div className="text-xs text-base-content/60 mb-2">
                     {new Date(v.createdAt).toLocaleString()}
                   </div>
 
-                  {/* Show the saved data for this version */}
                   <div className="text-xs space-y-1">
                     <div>
                       <span className="text-base-content/50">Sentiment:</span>{" "}
                       <strong>{v.snapshot.sentiment}</strong>
                     </div>
-
                     <div>
                       <span className="text-base-content/50">Type:</span>{" "}
                       <strong>{v.snapshot.type}</strong>
                     </div>
-
                     <div>
                       <span className="text-base-content/50">Status:</span>{" "}
                       <strong>{v.snapshot.status}</strong>
                     </div>
-
                     <div className="pt-1">
                       <span className="text-base-content/50">Text:</span>{" "}
                       <span className="whitespace-pre-wrap wrap-break-word">
                         {v.snapshot.commentText}
                       </span>
                     </div>
-
-                    {/* Show which fields changed in this version */}
                     {v.changedFields?.length > 0 && (
                       <div className="pt-1">
                         <span className="text-base-content/50">Changed:</span>{" "}
@@ -840,13 +884,37 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
           </button>
         </div>
       </div>
-
-      {/* Close the modal when clicking outside */}
       <div
         className="modal-backdrop"
         onClick={onClose}
         aria-hidden="true"
       />
+    </div>
+  );
+}
+
+// Small skeleton used inside the History modal while versions load
+function HistoryListSkeleton({ rows = 3 }) {
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="border border-base-300 rounded-lg p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex gap-2">
+              <div className="skeleton h-5 w-20 rounded-full" />
+              <div className="skeleton h-5 w-24 rounded-full" />
+            </div>
+            <div className="skeleton h-6 w-20 rounded-md" />
+          </div>
+          <div className="skeleton h-3 w-40 mb-3" />
+          <div className="space-y-2">
+            <div className="skeleton h-3 w-40" />
+            <div className="skeleton h-3 w-32" />
+            <div className="skeleton h-3 w-full" />
+            <div className="skeleton h-3 w-3/4" />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

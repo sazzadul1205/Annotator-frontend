@@ -435,11 +435,7 @@ function DatasetsPage() {
       {/* Datasets list */}
       <div className="card bg-base-100 shadow-sm">
         <div className="card-body">
-          {isLoading && (
-            <div className="flex justify-center py-6">
-              <span className="loading loading-spinner" />
-            </div>
-          )}
+          {isLoading && <DatasetsTableSkeleton rows={5} />}
 
           {listError && (
             <div className="alert alert-error text-sm">
@@ -453,7 +449,7 @@ function DatasetsPage() {
             </p>
           )}
 
-          {datasets.length > 0 && (
+          {!isLoading && datasets.length > 0 && (
             <div>
               <table className="table table-zebra">
                 <thead>
@@ -713,6 +709,75 @@ function DatasetsPage() {
 }
 
 export default DatasetsPage;
+
+// Skeleton placeholder rows shown while the datasets list loads
+function DatasetsTableSkeleton({ rows = 5 }) {
+  const skeletonRows = Array.from({ length: rows });
+
+  return (
+    <div>
+      <table className="table table-zebra">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>File</th>
+            <th>Status</th>
+            <th>Rows</th>
+            <th>Assigned</th>
+            <th>Created</th>
+            <th className="text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {skeletonRows.map((_, i) => (
+            <tr key={i}>
+              {/* Name */}
+              <td>
+                <div className="skeleton h-4 w-32" />
+              </td>
+
+              {/* File */}
+              <td>
+                <div className="skeleton h-3 w-40" />
+              </td>
+
+              {/* Status badge */}
+              <td>
+                <div className="skeleton h-5 w-20 rounded-full" />
+              </td>
+
+              {/* Rows count */}
+              <td>
+                <div className="skeleton h-3 w-16" />
+              </td>
+
+              {/* Assigned badge */}
+              <td>
+                <div className="skeleton h-5 w-24 rounded-full" />
+              </td>
+
+              {/* Created date */}
+              <td>
+                <div className="skeleton h-3 w-28" />
+              </td>
+
+              {/* Actions */}
+              <td className="text-right">
+                <div className="flex justify-end gap-1">
+                  <div className="skeleton h-6 w-14 rounded-md" />
+                  <div className="skeleton h-6 w-20 rounded-md" />
+                  <div className="skeleton h-6 w-20 rounded-md" />
+                  <div className="skeleton h-6 w-20 rounded-md" />
+                  <div className="skeleton h-6 w-20 rounded-md" />
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 // Rename Dataset Modal
 function RenameDatasetModal({ dataset, onClose, onDone, onError }) {

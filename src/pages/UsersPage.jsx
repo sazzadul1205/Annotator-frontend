@@ -1,4 +1,3 @@
-
 // React
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -32,7 +31,6 @@ import {
   confirmAction,
   confirmDelete,
 } from "../lib/swal";
-
 
 function UsersPage() {
   const { user: me } = useAuth();
@@ -106,10 +104,9 @@ function UsersPage() {
 
     if (ok) deleteMutation.mutate(u._id);
   };
-  
+
   return (
     <div>
-
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-semibold">Users</h1>
@@ -125,11 +122,7 @@ function UsersPage() {
       {/* Table */}
       <div className="card bg-base-100 shadow-sm">
         <div className="card-body">
-          {isLoading && (
-            <div className="flex justify-center py-6">
-              <span className="loading loading-spinner" />
-            </div>
-          )}
+          {isLoading && <UsersTableSkeleton rows={5} />}
 
           {listError && (
             <div className="alert alert-error text-sm">
@@ -143,7 +136,7 @@ function UsersPage() {
             </p>
           )}
 
-          {users.length > 0 && (
+          {!isLoading && users.length > 0 && (
             <div className="overflow-x-auto">
               <table className="table table-zebra table-sm">
                 <thead>
@@ -173,8 +166,8 @@ function UsersPage() {
                         <td>
                           <span
                             className={`badge badge-sm ${u.role === "admin"
-                              ? "badge-primary"
-                              : "badge-secondary"
+                                ? "badge-primary"
+                                : "badge-secondary"
                               }`}
                           >
                             {u.role}
@@ -257,6 +250,67 @@ function UsersPage() {
 
 export default UsersPage;
 
+// Skeleton placeholder rows shown while the users list loads
+function UsersTableSkeleton({ rows = 5 }) {
+  const skeletonRows = Array.from({ length: rows });
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="table table-zebra table-sm">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Role</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th className="text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {skeletonRows.map((_, i) => (
+            <tr key={i}>
+              {/* Name */}
+              <td>
+                <div className="skeleton h-4 w-32" />
+              </td>
+
+              {/* Email */}
+              <td>
+                <div className="skeleton h-3 w-44" />
+              </td>
+
+              {/* Role badge */}
+              <td>
+                <div className="skeleton h-5 w-20 rounded-full" />
+              </td>
+
+              {/* Status badge */}
+              <td>
+                <div className="skeleton h-5 w-16 rounded-full" />
+              </td>
+
+              {/* Created date */}
+              <td>
+                <div className="skeleton h-3 w-24" />
+              </td>
+
+              {/* Actions */}
+              <td className="text-right">
+                <div className="flex justify-end gap-1">
+                  <div className="skeleton h-6 w-24 rounded-md" />
+                  <div className="skeleton h-6 w-24 rounded-md" />
+                  <div className="skeleton h-6 w-20 rounded-md" />
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // Create User Modal
 function CreateUserModal({ onClose, onCreated, onError }) {
   const [loading, setLoading] = useState(false);
@@ -289,10 +343,8 @@ function CreateUserModal({ onClose, onCreated, onError }) {
 
   return (
     <div className="modal modal-open">
-
       {/* Modal */}
       <div className="modal-box">
-
         {/* Modal Header */}
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-bold text-lg flex items-center gap-2">
@@ -464,7 +516,6 @@ function ResetPasswordModal({ user, onClose, onDone, onError }) {
     <div className="modal modal-open">
       {/* Modal */}
       <div className="modal-box">
-
         {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-bold text-lg flex items-center gap-2">

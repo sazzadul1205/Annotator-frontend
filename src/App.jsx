@@ -4,6 +4,8 @@ import ProtectedRoute from "./components/ProtectedRoute";
 
 import LoginPage from "./pages/auth/LoginPage";
 import BootstrapPage from "./pages/auth/BootstrapPage";
+import ServiceUnavailablePage from "./pages/ServiceUnavailablePage";
+import NotFoundPage from "./pages/NotFoundPage";
 
 import DatasetsPage from "./pages/DatasetsPage";
 import DatasetDetailPage from "./pages/DatasetDetailPage";
@@ -17,6 +19,12 @@ export default function App() {
       {/* Public */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/bootstrap" element={<BootstrapPage />} />
+
+      {/* Service Unavailable — reachable even when the backend is down */}
+      <Route
+        path="/service-unavailable"
+        element={<ServiceUnavailablePage />}
+      />
 
       {/* Protected */}
       <Route
@@ -40,8 +48,8 @@ export default function App() {
         />
       </Route>
 
-      {/* Fallback */}
-      <Route path="*" element={<Navigate to="/" replace />} />
+      {/* 404 */}
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
 }
