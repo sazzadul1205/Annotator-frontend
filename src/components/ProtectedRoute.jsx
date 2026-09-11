@@ -1,14 +1,24 @@
-import { Navigate } from 'react-router-dom'
-import { useAuth } from '../hooks/useAuth' 
+import { Navigate } from "react-router-dom";
+import { useAuth } from "../context/useAuth";
 
-const ProtectedRoute = ({ children }) => {
-  const { isAuthenticated } = useAuth()  
+export default function ProtectedRoute({ children, adminOnly = false }) {
+  const { loading, isAuthenticated, isAdmin } = useAuth();
 
-  if (!isAuthenticated()) {
-    return <Navigate to="/login" replace />
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <span className="loading loading-spinner loading-lg" />
+      </div>
+    );
   }
 
-  return children
-}
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
 
-export default ProtectedRoute
+  if (adminOnly && !isAdmin) {
+    return <Navigate to="/" replace />;
+  }
+
+  return children;
+}

@@ -1,43 +1,68 @@
-// src/context/AuthProvider.jsx
-import { useState } from 'react';
-import { AuthContext } from './context';
-import { loginUser } from '../services/api';
-import { getInitialUser } from '../utils/authHelpers';
+import { useEffect, useState } from "react";
+import { AuthContext } from "./AuthContext";
+import { tokenStore } from "../services/api";
+import {
+  getMe,
+  login as loginApi,
+  logout as logoutApi,
+} from "../services/authApi";
 
-export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(getInitialUser);
+export function AuthProvider({ children }) {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(() => !!tokenStore.get());
 
-  const login = async (username, password) => {
-    try {
-      const response = await loginUser(username, password);
-      const { user, token } = response.data.data;
-      
-      localStorage.setItem('token', token);
-      localStorage.setItem('user', JSON.stringify(user));
-      setUser(user);
-      
-      return { success: true, data: user };
-    } catch (error) {
-      return { 
-        success: false, 
-        error: error.response?.data?.error || 'Login failed' 
-      };
+  useEffect(() => {
+    const token = tokenStore.get();
+
+    if (!token) {
+      return;
     }
+
+    getMe()
+      .then((res) => {
+        setUser(res.user);
+      })
+      .catch(() => {
+        tokenStore.clear();
+        setUser(null);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, []);
+
+  const login = async (email, password) => {
+    const res = await loginApi({ email, password });
+
+    tokenStore.set(res.token);
+    setUser(res.user);
+
+    return res.user;
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+  const logout = async () => {
+    try {
+      await logoutApi();
+    } catch {
+      // Ignore logout API errors
+    }
+
+    tokenStore.clear();
     setUser(null);
   };
 
-  const isAuthenticated = () => {
-    return !!user && !!localStorage.getItem('token');
-  };
-
   return (
-    <AuthContext.Provider value={{ user, login, logout, isAuthenticated }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        login,
+        logout,
+        isAuthenticated: !!user,
+        isAdmin: user?.role === "admin",
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
-};
+}
