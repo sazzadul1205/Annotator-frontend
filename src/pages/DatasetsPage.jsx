@@ -1,925 +1,1132 @@
 // React
-import { useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { useForm } from "react-hook-form";
+import { useState } from "react";
+import { useParams, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 // Icons
 import {
-  Upload,
-  Eye,
-  Download,
-  Pencil,
-  Trash2,
-  FileSpreadsheet,
+  ArrowLeft,
   UserPlus,
-  UserMinus,
-  X,
+  Save,
+  Trash2,
+  Search,
   CheckCircle2,
-  AlertCircle,
-  Copy,
+  History,
+  RotateCcw,
+  X,
+  Database,
+  FileText,
+  Clock,
+  Filter,
+  ChevronLeft,
+  ChevronRight,
+  Sparkles,
 } from "lucide-react";
 
 // Services
 import {
-  listDatasets,
-  importDataset,
-  renameDataset,
-  deleteDataset,
-  getDataset,
-  assignDataset,
-  duplicateDataset,
-} from "../services/datasetApi";
+  listComments,
+  annotateComment,
+  deleteComment,
+  getCommentVersions,
+  restoreCommentVersion,
+} from "../services/commentApi";
 import { listUsers } from "../services/userApi";
-import { exportComments } from "../services/commentApi";
+import { getDataset, assignDataset } from "../services/datasetApi";
 
 // Context
 import { useAuth } from "../context/useAuth";
 
 // Lib
-import {
-  toast,
-  alertError,
-  alertSuccess,
-  confirmDelete,
-} from "../lib/swal";
+import { toast, alertError, confirmAction, confirmDelete } from "../lib/swal";
 
-function DatasetsPage() {
+const PAGE_SIZES = [5, 10, 20, 50];
+
+/* ------------------------------------------------------------------ */
+/* Helpers                                                             */
+/* ------------------------------------------------------------------ */
+
+const SENTIMENTS = ["positive", "negative", "neutral"];
+const TYPES = ["bangla", "english", "banglish"];
+
+const sentimentColor = (s) =>
+  s === "positive"
+    ? "text-success"
+    : s === "negative"
+      ? "text-error"
+      : s === "neutral"
+        ? "text-info"
+        : "text-base-content/40";
+
+const statusBadgeClass = (status) =>
+  status === "annotated" ? "badge-success" : "badge-warning";
+
+export default function DatasetDetailPage() {
+  const { id } = useParams();
   const { user } = useAuth();
-  const queryClient = useQueryClient();
   const isAdmin = user?.role === "admin";
+  const queryClient = useQueryClient();
 
-  // Component state
-  const [uploads, setUploads] = useState([]);
-  const [deletingId, setDeletingId] = useState(null);
-  const [exportingId, setExportingId] = useState(null);
-  const [assigningId, setAssigningId] = useState(null);
-  const [renameTarget, setRenameTarget] = useState(null);
-  const [duplicatingId, setDuplicatingId] = useState(null);
+  // Pagination and filter state
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [pageSize, setPageSize] = useState(20);
+  const [searchInput, setSearchInput] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [hideAnnotated, setHideAnnotated] = useState(true);
+  const [historyCommentId, setHistoryCommentId] = useState(null);
 
-  // File input reference
-  const fileInputRef = useRef(null);
+  // Store unsaved changes for each comment
+  const [rows, setRows] = useState({});
+  const [savingId, setSavingId] = useState(null);
 
-  // Check if any upload is still being processed
-  const hasActiveUpload = uploads.some(
-    (u) =>
-      u.status === "uploading" ||
-      u.status === "processing" ||
-      u.status === "pending",
-  );
-
-  // Fetch datasets and refresh while uploads are active
-  const { data, isLoading, error: listError } = useQuery({
-    queryKey: ["datasets"],
-    queryFn: () => listDatasets(),
-    refetchInterval: hasActiveUpload ? 2000 : false,
+  // Fetch dataset details and summary
+  const { data: dsData, isLoading: loadingDs } = useQuery({
+    queryKey: ["dataset", id],
+    queryFn: () => getDataset(id),
+    enabled: !!id,
   });
 
-  // Get datasets from the API response
-  const datasets = data?.datasets || [];
+  const dataset = dsData?.dataset;
+  const summary = dsData?.summary || { total: 0, pending: 0, annotated: 0 };
 
-  // Fetch users only for admins
+  const progressPct =
+    summary.total > 0
+      ? Math.round((summary.annotated / summary.total) * 100)
+      : 0;
+
+  // Fetch users for admin assignment controls
   const { data: usersData } = useQuery({
     queryKey: ["users"],
     queryFn: listUsers,
     enabled: isAdmin,
   });
 
-  // Get active annotators
   const annotators = (usersData?.users || []).filter(
-    (u) => u.role === "annotator" && u.isActive,
+    (u) => u.role === "annotator",
   );
 
-  // Get an annotator's name from their ID
-  const annotatorName = (id) =>
-    annotators.find((u) => u._id === id)?.name || "(removed)";
-
-  // Update an upload in the local queue
-  const updateUpload = (id, patch) => {
-    setUploads((prev) =>
-      prev.map((u) => (u.id === id ? { ...u, ...patch } : u)),
-    );
+  const assigneeName = () => {
+    if (!dataset?.assignedTo) return "Unassigned";
+    const u = annotators.find((x) => x._id === dataset.assignedTo);
+    return u ? u.name : "(removed)";
   };
 
-  // Remove an upload from the queue
-  const removeUpload = (id) => {
-    setUploads((prev) => prev.filter((u) => u.id !== id));
+  // Build query parameters for the comments request
+  const params = {
+    datasetId: id,
+    page,
+    limit: pageSize,
+    ...(filterStatus && { status: filterStatus }),
+    ...(!filterStatus && hideAnnotated && { hideAnnotated: "true" }),
+    ...(search && { search }),
   };
 
-  // Check the dataset status until processing is finished
-  const pollDataset = async (datasetId, uploadId) => {
-    const maxAttempts = 80;
+  const { data: commentsData, isLoading: loadingComments } = useQuery({
+    queryKey: ["comments", params],
+    queryFn: () => listComments(params),
+    enabled: !!id,
+  });
 
-    for (let i = 0; i < maxAttempts; i++) {
-      // Wait before checking the status again
-      await new Promise((r) => setTimeout(r, 1500));
+  const comments = commentsData?.comments || [];
+  const total = commentsData?.total || 0;
+  const totalPages = commentsData?.totalPages || 1;
 
-      try {
-        const res = await getDataset(datasetId);
-        const s = res?.dataset?.status;
+  // Update unsaved changes for a specific comment
+  const setRow = (commentId, patch) => {
+    setRows((prev) => ({
+      ...prev,
+      [commentId]: { ...prev[commentId], ...patch },
+    }));
+  };
 
-        // Import completed successfully
-        if (s === "completed") {
-          updateUpload(uploadId, {
-            status: "completed",
-            importedRows: res.dataset.importedRows,
-            skippedRows: res.dataset.skippedRows,
-          });
+  // Get the current values for a comment
+  const resolveRow = (c) => {
+    const local = rows[c._id] || {};
+    return {
+      sentiment:
+        local.sentiment ??
+        (SENTIMENTS.includes(c.sentiment) ? c.sentiment : ""),
+      type: local.type ?? (TYPES.includes(c.type) ? c.type : ""),
+    };
+  };
 
-          queryClient.invalidateQueries({ queryKey: ["datasets"] });
-          return;
-        }
-
-        // Import failed on the server
-        if (s === "failed") {
-          updateUpload(uploadId, {
-            status: "failed",
-            error: res.dataset.importError || "Import failed",
-          });
-          return;
-        }
-
-        // Dataset is still being processed
-        updateUpload(uploadId, { status: "processing" });
-      } catch {
-        // Ignore temporary polling errors and try again
-      }
-    }
-
-    // Stop polling if the maximum attempts are reached
-    updateUpload(uploadId, {
-      status: "failed",
-      error: "Timed out while polling",
+  const clearRow = (commentId) => {
+    setRows((prev) => {
+      const next = { ...prev };
+      delete next[commentId];
+      return next;
     });
   };
 
-  // Upload a file and start dataset processing
-  const startUpload = async (file, uploadId) => {
+  const handleSave = async (comment) => {
+    const row = resolveRow(comment);
+
+    if (!row.sentiment || !row.type) {
+      toast("Pick both sentiment and type", "warning");
+      return;
+    }
+
+    const serverSentiment = SENTIMENTS.includes(comment.sentiment)
+      ? comment.sentiment
+      : "";
+    const serverType = TYPES.includes(comment.type) ? comment.type : "";
+
+    if (row.sentiment === serverSentiment && row.type === serverType) {
+      return;
+    }
+
+    setSavingId(comment._id);
     try {
-      // Upload the file and update progress
-      const res = await importDataset(file, "", (pct) => {
-        updateUpload(uploadId, { progress: pct });
+      await annotateComment(comment._id, {
+        sentiment: row.sentiment,
+        type: row.type,
       });
-
-      // Mark the upload as processing
-      updateUpload(uploadId, {
-        status: "processing",
-        datasetId: res.datasetId,
-      });
-
-      queryClient.invalidateQueries({ queryKey: ["datasets"] });
-
-      // Wait for the dataset import to finish
-      pollDataset(res.datasetId, uploadId);
+      clearRow(comment._id);
+      queryClient.invalidateQueries({ queryKey: ["dataset", id] });
+      queryClient.invalidateQueries({ queryKey: ["comments"] });
     } catch (err) {
-      // Show upload errors in the queue
-      updateUpload(uploadId, {
-        status: "failed",
-        error: err?.response?.data?.error || err.message || "Upload failed",
-      });
+      clearRow(comment._id);
+      alertError(
+        "Save failed",
+        err?.response?.data?.error || err.message || "Unknown error",
+      );
+    } finally {
+      setSavingId(null);
     }
   };
 
-  // Handle files selected from the file picker
-  const handleFilePick = (e) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-
-    // Create queue entries for each selected file
-    const newUploads = files.map((file) => ({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      name: file.name,
-      size: file.size,
-      progress: 0,
-      status: "uploading",
-      datasetId: null,
-      error: "",
-      importedRows: 0,
-      skippedRows: 0,
-      _file: file,
-    }));
-
-    setUploads((prev) => [...prev, ...newUploads]);
-
-    // Start uploading each selected file
-    for (const u of newUploads) {
-      startUpload(u._file, u.id);
+  const handleAssign = async (assignedTo) => {
+    try {
+      await assignDataset(id, assignedTo);
+      queryClient.invalidateQueries({ queryKey: ["dataset", id] });
+      queryClient.invalidateQueries({ queryKey: ["datasets"] });
+    } catch (err) {
+      alertError(
+        "Assign failed",
+        err?.response?.data?.error || err.message || "Unknown error",
+      );
     }
-
-    // Reset the input so the same file can be selected again
-    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  // Delete a dataset
-  const handleDelete = async (ds) => {
+  const handleDelete = async (commentId) => {
     const ok = await confirmDelete(
-      `Delete "${ds.name}"?`,
-      "This removes all its comments and history. This cannot be undone.",
+      "Delete this comment?",
+      "All its versions will also be removed. This cannot be undone.",
     );
     if (!ok) return;
 
-    setDeletingId(ds._id);
-
     try {
-      await deleteDataset(ds._id);
-
-      // Refresh the dataset list after deletion
-      queryClient.invalidateQueries({ queryKey: ["datasets"] });
-    } catch (err) {
-      alertError("Delete failed", err?.response?.data?.error || err.message);
-    } finally {
-      setDeletingId(null);
-    }
-  };
-
-  // Assign or unassign a dataset
-  const handleAssign = async (ds, assignedTo) => {
-    if ((ds.assignedTo || null) === (assignedTo || null)) return;
-
-    setAssigningId(ds._id);
-
-    try {
-      await assignDataset(ds._id, assignedTo);
-
-      // Refresh the list after assignment
-      queryClient.invalidateQueries({ queryKey: ["datasets"] });
-
-      alertSuccess(
-        "Done",
-        assignedTo
-          ? `Assigned to ${annotatorName(assignedTo)}`
-          : "Dataset unassigned",
-      );
-    } catch (err) {
-      alertError("Assign failed", err?.response?.data?.error || err.message);
-    } finally {
-      setAssigningId(null);
-    }
-  };
-
-  // Create a copy of a dataset
-  const handleDuplicate = async (ds) => {
-    setDuplicatingId(ds._id);
-
-    try {
-      const res = await duplicateDataset(ds._id, `${ds.name} (copy)`);
-
-      // Refresh the list to show the new dataset
-      queryClient.invalidateQueries({ queryKey: ["datasets"] });
-
-      alertSuccess(
-        "Duplicated",
-        `Created "${ds.name} (copy)" with ${res.copiedComments} comments.`,
-      );
+      await deleteComment(commentId);
+      queryClient.invalidateQueries({ queryKey: ["comments"] });
+      queryClient.invalidateQueries({ queryKey: ["dataset", id] });
     } catch (err) {
       alertError(
-        "Duplicate failed",
-        err?.response?.data?.error || err.message,
+        "Delete failed",
+        err?.response?.data?.error || err.message || "Unknown error",
       );
-    } finally {
-      setDuplicatingId(null);
     }
   };
 
-  // Export dataset comments
-  const handleExport = async (ds, format) => {
-    setExportingId(ds._id);
-
-    try {
-      // Request the exported file from the backend
-      const blob = await exportComments({ datasetId: ds._id, format });
-      const url = URL.createObjectURL(blob);
-
-      // Create a filename based on the dataset name
-      const filename = `${ds.name.replace(/\s+/g, "_")}.${format}`;
-
-      // Trigger the browser download
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      a.style.display = "none";
-      document.body.appendChild(a);
-      a.click();
-
-      toast(`Download started: ${filename}`);
-
-      // Clean up the temporary download elements
-      setTimeout(() => {
-        a.remove();
-        URL.revokeObjectURL(url);
-      }, 0);
-    } catch (err) {
-      alertError("Export failed", err?.response?.data?.error || err.message);
-    } finally {
-      setExportingId(null);
-    }
+  const handleSearchSubmit = (e) => {
+    e.preventDefault();
+    setSearch(searchInput.trim());
+    setPage(1);
   };
+
+  const handlePageSizeChange = (size) => {
+    setPageSize(size);
+    setPage(1);
+  };
+
+  // ---------- Render ----------
+
+  if (loadingDs) {
+    return <DatasetDetailSkeleton />;
+  }
+
+  if (!dataset) {
+    return (
+      <div className="flex flex-col items-center justify-center text-center py-20">
+        <div className="w-14 h-14 rounded-2xl bg-base-200 flex items-center justify-center mb-4">
+          <Database className="w-6 h-6 text-base-content/40" />
+        </div>
+        <p className="text-base-content/60 mb-4">Dataset not found.</p>
+        <Link to="/datasets" className="btn btn-primary btn-sm gap-2">
+          <ArrowLeft className="w-4 h-4" />
+          Back to Datasets
+        </Link>
+      </div>
+    );
+  }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-semibold">Datasets</h1>
-      </div>
+    <div className="space-y-6">
+      {/* ---------- Header ---------- */}
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+        <div className="min-w-0">
+          <Link
+            to="/datasets"
+            className="inline-flex items-center gap-1 text-xs text-base-content/50 hover:text-base-content transition-colors mb-2"
+          >
+            <ArrowLeft className="w-3 h-3" />
+            Back to Datasets
+          </Link>
 
-      {/* Upload card */}
-      {isAdmin && (
-        <div className="card bg-base-100 shadow-sm mb-6">
-          <div className="card-body">
-            <h2 className="card-title text-base gap-2">
-              <Upload className="w-4 h-4" />
-              Upload CSV / XLSX
-              <span className="text-xs font-normal text-base-content/50">
-                (select one or many)
-              </span>
-            </h2>
+          <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+              <Database className="w-4.5 h-4.5" />
+            </div>
+            <span className="truncate">{dataset.name}</span>
+          </h1>
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".csv,.xlsx"
-              multiple
-              className="file-input file-input-bordered w-full max-w-md"
-              onChange={handleFilePick}
-            />
-
-            {uploads.length > 0 && (
-              <div className="mt-4 space-y-2">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-base-content/60">
-                    {uploads.filter((u) => u.status === "completed").length} of{" "}
-                    {uploads.length} finished
-                  </span>
-                  {uploads.some(
-                    (u) => u.status === "completed" || u.status === "failed",
-                  ) && (
-                      <button
-                        className="btn btn-ghost btn-xs"
-                        onClick={() =>
-                          setUploads((prev) =>
-                            prev.filter(
-                              (u) =>
-                                u.status !== "completed" &&
-                                u.status !== "failed",
-                            ),
-                          )
-                        }
-                      >
-                        Clear finished
-                      </button>
-                    )}
-                </div>
-
-                {uploads.map((u) => (
-                  <div
-                    key={u.id}
-                    className="border border-base-300 rounded-lg p-2"
-                  >
-                    <div className="flex items-center justify-between gap-2 mb-1">
-                      <div className="flex items-center gap-2 min-w-0">
-                        {u.status === "completed" && (
-                          <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
-                        )}
-                        {u.status === "failed" && (
-                          <AlertCircle className="w-4 h-4 text-error shrink-0" />
-                        )}
-                        {u.status === "processing" && (
-                          <span className="loading loading-spinner loading-xs" />
-                        )}
-                        {u.status === "uploading" && (
-                          <Upload className="w-4 h-4 text-primary shrink-0" />
-                        )}
-                        <span className="text-xs font-medium truncate">
-                          {u.name}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-xs text-base-content/60">
-                          {u.status === "uploading" &&
-                            `Uploading ${u.progress}%`}
-                          {u.status === "processing" && "Processing..."}
-                          {u.status === "completed" &&
-                            `Done · ${u.importedRows} imported${u.skippedRows > 0
-                              ? `, ${u.skippedRows} skipped`
-                              : ""
-                            }`}
-                          {u.status === "failed" && u.error}
-                        </span>
-                        {(u.status === "completed" ||
-                          u.status === "failed") && (
-                            <button
-                              className="btn btn-xs btn-ghost btn-circle"
-                              onClick={() => removeUpload(u.id)}
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          )}
-                      </div>
-                    </div>
-
-                    {u.status === "uploading" && (
-                      <progress
-                        className="progress progress-primary w-full h-1"
-                        value={u.progress}
-                        max="100"
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+          <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-base-content/60">
+            <span className="inline-flex items-center gap-1">
+              <FileText className="w-3 h-3" />
+              {dataset.originalFileName}
+            </span>
+            <span className="text-base-content/30">·</span>
+            <span
+              className={`badge badge-xs capitalize ${
+                dataset.status === "completed"
+                  ? "badge-success"
+                  : dataset.status === "in-progress"
+                    ? "badge-info"
+                    : "badge-ghost"
+              }`}
+            >
+              {dataset.status}
+            </span>
           </div>
         </div>
-      )}
 
-      {/* Datasets list */}
-      <div className="card bg-base-100 shadow-sm">
-        <div className="card-body">
-          {isLoading && <DatasetsTableSkeleton rows={5} />}
+        {/* Assign control */}
+        {isAdmin && (
+          <div className="dropdown dropdown-end shrink-0">
+            <button tabIndex={0} className="btn btn-sm btn-outline gap-2">
+              <UserPlus className="w-4 h-4" />
+              Assign
+            </button>
+            <ul
+              tabIndex={0}
+              className="dropdown-content menu bg-base-100 rounded-box z-10 w-56 p-2 shadow-xl border border-base-content/5 mt-2"
+            >
+              <li className="menu-title text-[10px] uppercase tracking-widest">
+                Assign to
+              </li>
+              <li>
+                <button
+                  onClick={() => handleAssign(null)}
+                  disabled={!dataset.assignedTo}
+                  className="text-base-content/70"
+                >
+                  Unassign
+                </button>
+              </li>
+              {annotators.length === 0 && (
+                <li className="disabled">
+                  <span className="text-base-content/40">No annotators</span>
+                </li>
+              )}
+              {annotators.map((u) => (
+                <li key={u._id}>
+                  <button
+                    onClick={() => handleAssign(u._id)}
+                    className={
+                      u._id === dataset.assignedTo ? "active font-medium" : ""
+                    }
+                  >
+                    {u.name}
+                    {u._id === dataset.assignedTo && (
+                      <CheckCircle2 className="w-3.5 h-3.5 ml-auto text-success" />
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
 
-          {listError && (
-            <div className="alert alert-error text-sm">
-              <span>{listError.message}</span>
+      {/* ---------- Stats + progress ---------- */}
+      <div className="card bg-base-100/80 backdrop-blur-xl shadow-xl border border-base-content/5">
+        <div className="card-body p-5 sm:p-6">
+          {/* Stat grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+            <StatTile
+              label="Imported"
+              value={`${dataset.importedRows}/${dataset.totalRows}`}
+              hint={
+                dataset.skippedRows > 0
+                  ? `${dataset.skippedRows} skipped`
+                  : null
+              }
+              hintTone="warning"
+            />
+            <StatTile
+              label="Annotated"
+              value={summary.annotated}
+              hint={`${progressPct}% complete`}
+              hintTone="success"
+            />
+            <StatTile
+              label="Pending"
+              value={summary.pending}
+              hint={
+                summary.total > 0 && summary.pending === 0 ? "all done" : null
+              }
+              hintTone="success"
+            />
+            <StatTile
+              label="Assignee"
+              value={isAdmin ? assigneeName() : "You"}
+            />
+          </div>
+
+          {/* Progress bar */}
+          <div>
+            <div className="flex items-baseline justify-between mb-2">
+              <span className="text-xs font-medium uppercase tracking-widest text-base-content/50">
+                Progress
+              </span>
+              <span className="text-xs text-base-content/60">
+                <strong className="text-base-content">
+                  {summary.annotated}
+                </strong>{" "}
+                / {summary.total}
+              </span>
             </div>
-          )}
+            <progress
+              className="progress progress-primary w-full h-2"
+              value={summary.annotated}
+              max={summary.total || 1}
+            />
+          </div>
+        </div>
+      </div>
 
-          {!isLoading && datasets.length === 0 && (
-            <p className="text-center text-base-content/60 py-6">
-              No datasets yet.
-            </p>
-          )}
+      {/* ---------- Filters ---------- */}
+      <div className="card bg-base-100/80 backdrop-blur-xl shadow-xl border border-base-content/5">
+        <div className="card-body p-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 text-base-content/50">
+              <Filter className="w-3.5 h-3.5" />
+              <span className="text-[10px] uppercase tracking-widest font-semibold">
+                Filters
+              </span>
+            </div>
 
-          {!isLoading && datasets.length > 0 && (
-            <div>
-              <table className="table table-zebra">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>File</th>
-                    <th>Status</th>
-                    <th>Rows</th>
-                    <th>Assigned</th>
-                    <th>Created</th>
-                    <th className="text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {datasets.map((ds) => {
-                    const isDeleting = deletingId === ds._id;
-                    const isDuplicating = duplicatingId === ds._id;
-                    const isExporting = exportingId === ds._id;
-                    const isAssigning = assigningId === ds._id;
-                    const anyBusy =
-                      isDeleting || isDuplicating || isExporting || isAssigning;
+            <select
+              className="select select-bordered select-sm focus:select-primary transition-all"
+              value={filterStatus}
+              onChange={(e) => {
+                setFilterStatus(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">All statuses</option>
+              <option value="pending">Pending only</option>
+              <option value="annotated">Annotated only</option>
+            </select>
 
-                    return (
-                      <tr
-                        key={ds._id}
-                        className={isDeleting ? "opacity-50" : ""}
-                      >
-                        <td className="font-medium">
-                          {ds.name}
-                          {ds.duplicatedFrom && (
-                            <span className="badge badge-ghost badge-xs ml-2">
-                              copy
+            {!filterStatus && (
+              <label className="label cursor-pointer gap-2 py-0">
+                <input
+                  type="checkbox"
+                  className="checkbox checkbox-sm checkbox-primary"
+                  checked={hideAnnotated}
+                  onChange={(e) => {
+                    setHideAnnotated(e.target.checked);
+                    setPage(1);
+                  }}
+                />
+                <span className="label-text text-sm">Hide annotated</span>
+              </label>
+            )}
+
+            <form onSubmit={handleSearchSubmit} className="join ml-auto">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-base-content/40 pointer-events-none" />
+                <input
+                  type="text"
+                  className="input input-bordered input-sm join-item w-56 sm:w-64 pl-9 focus:input-primary transition-all"
+                  placeholder="Search text…"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                />
+              </div>
+              <button className="btn btn-sm join-item" type="submit">
+                Go
+              </button>
+            </form>
+          </div>
+
+          <div className="flex items-center justify-between mt-3 pt-3 border-t border-base-content/5">
+            <span className="text-xs text-base-content/50">
+              <strong className="text-base-content">{total}</strong>{" "}
+              {total === 1 ? "comment" : "comments"}
+              {search && (
+                <>
+                  {" "}
+                  matching{" "}
+                  <span className="font-mono text-base-content">
+                    "{search}"
+                  </span>
+                </>
+              )}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ---------- Comments table ---------- */}
+      <div className="card bg-base-100/80 backdrop-blur-xl shadow-xl border border-base-content/5">
+        <div className="card-body p-0">
+          {loadingComments ? (
+            <div className="p-5">
+              <CommentsTableSkeleton rows={pageSize > 20 ? 10 : pageSize} />
+            </div>
+          ) : comments.length === 0 ? (
+            <EmptyState
+              icon={Search}
+              title="No comments found"
+              hint="Try adjusting filters or search."
+            />
+          ) : (
+            <>
+              {/* Table */}
+              <div className="overflow-x-auto">
+                <table className="table table-sm">
+                  <thead>
+                    <tr className="border-base-content/5">
+                      <th className="bg-transparent text-[10px] uppercase tracking-widest text-base-content/50 font-semibold pl-5">
+                        ID
+                      </th>
+                      <th className="bg-transparent text-[10px] uppercase tracking-widest text-base-content/50 font-semibold">
+                        Comment
+                      </th>
+                      <th className="bg-transparent text-[10px] uppercase tracking-widest text-base-content/50 font-semibold">
+                        Sentiment
+                      </th>
+                      <th className="bg-transparent text-[10px] uppercase tracking-widest text-base-content/50 font-semibold">
+                        Type
+                      </th>
+                      <th className="bg-transparent text-[10px] uppercase tracking-widest text-base-content/50 font-semibold">
+                        Status
+                      </th>
+                      <th className="bg-transparent text-[10px] uppercase tracking-widest text-base-content/50 font-semibold text-right pr-5">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comments.map((c) => {
+                      const row = resolveRow(c);
+                      const serverSentiment = SENTIMENTS.includes(c.sentiment)
+                        ? c.sentiment
+                        : "";
+                      const serverType = TYPES.includes(c.type) ? c.type : "";
+                      const dirty =
+                        row.sentiment !== serverSentiment ||
+                        row.type !== serverType;
+                      const canSave = dirty && !!row.sentiment && !!row.type;
+                      const isSaving = savingId === c._id;
+
+                      return (
+                        <tr
+                          key={c._id}
+                          className={`border-base-content/5 transition-colors ${
+                            dirty
+                              ? "bg-primary/5 hover:bg-primary/10"
+                              : "hover:bg-base-200/40"
+                          }`}
+                        >
+                          <td className="pl-5">
+                            <span className="text-xs font-mono text-base-content/60">
+                              {c.sourceId}
                             </span>
-                          )}
-                        </td>
-                        <td className="text-xs text-base-content/60">
-                          {ds.originalFileName}
-                        </td>
-                        <td>
-                          <StatusBadge status={ds.status} />
-                        </td>
-                        <td className="text-sm">
-                          {ds.importedRows}/{ds.totalRows}
-                          {ds.skippedRows > 0 && (
-                            <span className="text-xs text-warning ml-1">
-                              ({ds.skippedRows} skipped)
-                            </span>
-                          )}
-                        </td>
-                        <td className="text-xs">
-                          {ds.assignedTo ? (
-                            <span className="badge badge-outline badge-sm">
-                              {annotatorName(ds.assignedTo)}
-                            </span>
-                          ) : (
-                            <span className="text-base-content/40">—</span>
-                          )}
-                        </td>
-                        <td className="text-xs">
-                          {new Date(ds.createdAt).toLocaleString()}
-                        </td>
-                        <td className="text-right whitespace-nowrap">
-                          <Link
-                            to={`/datasets/${ds._id}`}
-                            className="btn btn-xs btn-ghost gap-1"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            View
-                          </Link>
+                          </td>
 
-                          {/* Export */}
-                          <div className="dropdown dropdown-end inline-block">
-                            <button
-                              tabIndex={0}
-                              className="btn btn-xs btn-ghost gap-1"
-                              disabled={
-                                ds.status !== "completed" || isExporting
+                          <td className="max-w-md">
+                            <span className="line-clamp-2 text-sm">
+                              {c.commentText}
+                            </span>
+                          </td>
+
+                          <td>
+                            <select
+                              className={`select select-bordered select-xs w-28 focus:select-primary transition-all ${sentimentColor(
+                                row.sentiment,
+                              )}`}
+                              value={row.sentiment}
+                              onChange={(e) =>
+                                setRow(c._id, { sentiment: e.target.value })
                               }
                             >
-                              {isExporting ? (
-                                <span className="loading loading-spinner loading-xs" />
-                              ) : (
-                                <Download className="w-3.5 h-3.5" />
-                              )}
-                              {isExporting ? "Exporting" : "Export"}
-                            </button>
-                            <ul
-                              tabIndex={0}
-                              className="dropdown-content menu bg-base-100 rounded-box z-10 w-32 p-2 shadow"
+                              <option value="">—</option>
+                              {SENTIMENTS.map((s) => (
+                                <option key={s} value={s}>
+                                  {s}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
+
+                          <td>
+                            <select
+                              className="select select-bordered select-xs w-24 focus:select-primary transition-all"
+                              value={row.type}
+                              onChange={(e) =>
+                                setRow(c._id, { type: e.target.value })
+                              }
                             >
-                              <li>
-                                <button
-                                  className="gap-2"
-                                  disabled={isExporting}
-                                  onClick={() => handleExport(ds, "csv")}
-                                >
-                                  <FileSpreadsheet className="w-3.5 h-3.5" />
-                                  CSV
-                                </button>
-                              </li>
-                              <li>
-                                <button
-                                  className="gap-2"
-                                  disabled={isExporting}
-                                  onClick={() => handleExport(ds, "xlsx")}
-                                >
-                                  <FileSpreadsheet className="w-3.5 h-3.5" />
-                                  XLSX
-                                </button>
-                              </li>
-                            </ul>
-                          </div>
+                              <option value="">—</option>
+                              {TYPES.map((t) => (
+                                <option key={t} value={t}>
+                                  {t}
+                                </option>
+                              ))}
+                            </select>
+                          </td>
 
-                          {isAdmin && (
-                            <>
-                              {/* Assign */}
-                              <div className="dropdown dropdown-end inline-block">
-                                <button
-                                  tabIndex={0}
-                                  className="btn btn-xs btn-ghost gap-1"
-                                  disabled={isAssigning || anyBusy}
-                                >
-                                  {isAssigning ? (
-                                    <span className="loading loading-spinner loading-xs" />
-                                  ) : (
-                                    <UserPlus className="w-3.5 h-3.5" />
-                                  )}
-                                  Assign
-                                </button>
-                                <ul
-                                  tabIndex={0}
-                                  className="dropdown-content menu bg-base-100 rounded-box z-10 w-56 p-2 shadow"
-                                >
-                                  <li className="menu-title text-xs">
-                                    Assign to
-                                  </li>
+                          <td>
+                            <span
+                              className={`badge badge-sm capitalize ${statusBadgeClass(
+                                c.status,
+                              )}`}
+                            >
+                              {c.status}
+                            </span>
+                          </td>
 
-                                  {annotators.length === 0 && (
-                                    <li className="disabled">
-                                      <span>No annotators</span>
-                                    </li>
-                                  )}
-
-                                  {annotators.map((u) => {
-                                    const isCurrent =
-                                      ds.assignedTo === u._id;
-                                    return (
-                                      <li key={u._id}>
-                                        <button
-                                          onClick={() =>
-                                            handleAssign(ds, u._id)
-                                          }
-                                          disabled={isCurrent}
-                                          className={
-                                            isCurrent ? "active" : ""
-                                          }
-                                        >
-                                          <span className="flex items-center gap-2">
-                                            {u.name}
-                                            {isCurrent && (
-                                              <span className="badge badge-xs badge-primary">
-                                                current
-                                              </span>
-                                            )}
-                                          </span>
-                                        </button>
-                                      </li>
-                                    );
-                                  })}
-
-                                  {ds.assignedTo && (
-                                    <>
-                                      <div className="divider my-1"></div>
-                                      <li>
-                                        <button
-                                          onClick={() =>
-                                            handleAssign(ds, null)
-                                          }
-                                          className="text-error gap-2"
-                                        >
-                                          <UserMinus className="w-3.5 h-3.5" />
-                                          Unassign
-                                        </button>
-                                      </li>
-                                    </>
-                                  )}
-                                </ul>
-                              </div>
-
-                              {/* Rename */}
+                          <td className="text-right whitespace-nowrap pr-5">
+                            <div className="inline-flex items-center gap-0.5">
                               <button
-                                className="btn btn-xs btn-ghost gap-1"
-                                onClick={() => setRenameTarget(ds)}
-                                disabled={anyBusy}
+                                className={`btn btn-xs gap-1 normal-case ${
+                                  canSave
+                                    ? "btn-primary shadow-sm shadow-primary/20"
+                                    : "btn-ghost text-base-content/40"
+                                }`}
+                                onClick={() => handleSave(c)}
+                                disabled={!canSave || isSaving}
+                                title="Save annotation"
                               >
-                                <Pencil className="w-3.5 h-3.5" />
-                                Rename
-                              </button>
-
-                              {/* Duplicate */}
-                              <button
-                                className="btn btn-xs btn-ghost gap-1"
-                                onClick={() => handleDuplicate(ds)}
-                                disabled={
-                                  ds.status !== "completed" || anyBusy
-                                }
-                                title="Create a copy of this dataset and its comments"
-                              >
-                                {isDuplicating ? (
+                                {isSaving ? (
                                   <span className="loading loading-spinner loading-xs" />
                                 ) : (
-                                  <Copy className="w-3.5 h-3.5" />
+                                  <Save className="w-3.5 h-3.5" />
                                 )}
-                                {isDuplicating ? "Copying" : "Duplicate"}
+                                <span className="hidden sm:inline">Save</span>
                               </button>
 
-                              {/* Delete */}
-                              <button
-                                className="btn btn-xs btn-ghost text-error gap-1"
-                                onClick={() => handleDelete(ds)}
-                                disabled={anyBusy}
-                              >
-                                {isDeleting ? (
-                                  <span className="loading loading-spinner loading-xs" />
-                                ) : (
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                )}
-                                {isDeleting ? "Deleting" : "Delete"}
-                              </button>
-                            </>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                              {isAdmin && (
+                                <>
+                                  <button
+                                    className="btn btn-xs btn-ghost text-base-content/70 hover:text-base-content normal-case gap-1"
+                                    onClick={() => setHistoryCommentId(c._id)}
+                                    title="Version history"
+                                  >
+                                    <History className="w-3.5 h-3.5" />
+                                    <span className="hidden md:inline">
+                                      History
+                                    </span>
+                                  </button>
+                                  <button
+                                    className="btn btn-xs btn-ghost text-base-content/70 hover:text-error hover:bg-error/10 normal-case gap-1"
+                                    onClick={() => handleDelete(c._id)}
+                                    title="Delete comment"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <span className="hidden md:inline">
+                                      Delete
+                                    </span>
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-t border-base-content/5">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-base-content/50">
+                    Rows per page
+                  </span>
+                  <select
+                    className="select select-bordered select-xs w-20"
+                    value={pageSize}
+                    onChange={(e) =>
+                      handlePageSizeChange(Number(e.target.value))
+                    }
+                  >
+                    {PAGE_SIZES.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <span className="text-xs text-base-content/50">
+                  Page <strong className="text-base-content">{page}</strong> of{" "}
+                  {totalPages}
+                </span>
+
+                <div className="join">
+                  <button
+                    className="btn btn-sm join-item"
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    className="btn btn-sm join-item"
+                    disabled={page >= totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </>
           )}
         </div>
       </div>
 
-      {renameTarget && (
-        <RenameDatasetModal
-          dataset={renameTarget}
-          onClose={() => setRenameTarget(null)}
-          onDone={() => {
-            setRenameTarget(null);
-            queryClient.invalidateQueries({ queryKey: ["datasets"] });
-            alertSuccess("Done", "Dataset renamed.");
-          }}
-          onError={(msg) => alertError("Rename failed", msg)}
+      {historyCommentId && (
+        <HistoryModal
+          commentId={historyCommentId}
+          datasetId={id}
+          onClose={() => setHistoryCommentId(null)}
+          onRestored={(msg) => toast(msg)}
         />
       )}
     </div>
   );
 }
 
-export default DatasetsPage;
+/* ------------------------------------------------------------------ */
+/* Small building blocks                                               */
+/* ------------------------------------------------------------------ */
 
-// Skeleton placeholder rows shown while the datasets list loads
-function DatasetsTableSkeleton({ rows = 5 }) {
-  const skeletonRows = Array.from({ length: rows });
+function StatTile({ label, value, hint, hintTone = "neutral" }) {
+  const hintClass =
+    hintTone === "warning"
+      ? "text-warning"
+      : hintTone === "success"
+        ? "text-success"
+        : "text-base-content/50";
 
   return (
+    <div className="rounded-xl bg-base-200/50 border border-base-content/5 p-3">
+      <p className="text-[10px] uppercase tracking-widest text-base-content/50 font-semibold">
+        {label}
+      </p>
+      <p className="text-lg font-semibold leading-tight mt-1 truncate">
+        {value}
+      </p>
+      {hint && <p className={`text-[11px] mt-0.5 ${hintClass}`}>{hint}</p>}
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, title, hint }) {
+  return (
+    <div className="flex flex-col items-center justify-center text-center py-16">
+      <div className="w-14 h-14 rounded-2xl bg-base-200 flex items-center justify-center mb-3">
+        <Icon className="w-6 h-6 text-base-content/40" />
+      </div>
+      <p className="font-medium">{title}</p>
+      {hint && <p className="text-sm text-base-content/60 mt-1">{hint}</p>}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Skeletons                                                           */
+/* ------------------------------------------------------------------ */
+
+function DatasetDetailSkeleton() {
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <div className="skeleton h-3 w-32 mb-2" />
+        <div className="flex items-center gap-2.5 mb-2">
+          <div className="skeleton w-9 h-9 rounded-xl" />
+          <div className="skeleton h-7 w-64" />
+        </div>
+        <div className="skeleton h-3 w-52" />
+      </div>
+
+      {/* Stats card */}
+      <div className="card bg-base-100/80 border border-base-content/5">
+        <div className="card-body p-5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div
+                key={i}
+                className="rounded-xl bg-base-200/50 border border-base-content/5 p-3"
+              >
+                <div className="skeleton h-2.5 w-16 mb-2" />
+                <div className="skeleton h-5 w-20" />
+              </div>
+            ))}
+          </div>
+          <div className="skeleton h-2.5 w-24 mb-2" />
+          <div className="skeleton h-2 w-full rounded-full" />
+        </div>
+      </div>
+
+      {/* Filters card */}
+      <div className="card bg-base-100/80 border border-base-content/5">
+        <div className="card-body p-4">
+          <div className="flex flex-wrap gap-3 items-center">
+            <div className="skeleton h-8 w-24" />
+            <div className="skeleton h-8 w-32" />
+            <div className="skeleton h-4 w-28" />
+            <div className="skeleton h-8 w-64 ml-auto" />
+          </div>
+        </div>
+      </div>
+
+      {/* Comments card */}
+      <div className="card bg-base-100/80 border border-base-content/5">
+        <div className="card-body p-5">
+          <CommentsTableSkeleton rows={8} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CommentsTableSkeleton({ rows = 8 }) {
+  return (
     <div>
-      <table className="table table-zebra">
+      <table className="table table-sm">
         <thead>
-          <tr>
-            <th>Name</th>
-            <th>File</th>
-            <th>Status</th>
-            <th>Rows</th>
-            <th>Assigned</th>
-            <th>Created</th>
-            <th className="text-right">Actions</th>
+          <tr className="border-base-content/5">
+            <th className="bg-transparent text-[10px] uppercase tracking-widest text-base-content/50 font-semibold">
+              ID
+            </th>
+            <th className="bg-transparent text-[10px] uppercase tracking-widest text-base-content/50 font-semibold">
+              Comment
+            </th>
+            <th className="bg-transparent text-[10px] uppercase tracking-widest text-base-content/50 font-semibold">
+              Sentiment
+            </th>
+            <th className="bg-transparent text-[10px] uppercase tracking-widest text-base-content/50 font-semibold">
+              Type
+            </th>
+            <th className="bg-transparent text-[10px] uppercase tracking-widest text-base-content/50 font-semibold">
+              Status
+            </th>
+            <th className="bg-transparent text-[10px] uppercase tracking-widest text-base-content/50 font-semibold text-right">
+              Actions
+            </th>
           </tr>
         </thead>
         <tbody>
-          {skeletonRows.map((_, i) => (
-            <tr key={i}>
-              {/* Name */}
+          {Array.from({ length: rows }).map((_, i) => (
+            <tr key={i} className="border-base-content/5">
               <td>
-                <div className="skeleton h-4 w-32" />
+                <div className="skeleton h-3 w-12" />
               </td>
-
-              {/* File */}
+              <td className="max-w-md">
+                <div className="skeleton h-3 w-full mb-1" />
+                <div className="skeleton h-3 w-2/3" />
+              </td>
               <td>
-                <div className="skeleton h-3 w-40" />
+                <div className="skeleton h-6 w-28 rounded-md" />
               </td>
-
-              {/* Status badge */}
+              <td>
+                <div className="skeleton h-6 w-24 rounded-md" />
+              </td>
               <td>
                 <div className="skeleton h-5 w-20 rounded-full" />
               </td>
-
-              {/* Rows count */}
-              <td>
-                <div className="skeleton h-3 w-16" />
-              </td>
-
-              {/* Assigned badge */}
-              <td>
-                <div className="skeleton h-5 w-24 rounded-full" />
-              </td>
-
-              {/* Created date */}
-              <td>
-                <div className="skeleton h-3 w-28" />
-              </td>
-
-              {/* Actions */}
               <td className="text-right">
                 <div className="flex justify-end gap-1">
+                  <div className="skeleton h-6 w-16 rounded-md" />
+                  <div className="skeleton h-6 w-20 rounded-md" />
                   <div className="skeleton h-6 w-14 rounded-md" />
-                  <div className="skeleton h-6 w-20 rounded-md" />
-                  <div className="skeleton h-6 w-20 rounded-md" />
-                  <div className="skeleton h-6 w-20 rounded-md" />
-                  <div className="skeleton h-6 w-20 rounded-md" />
                 </div>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
+        <div className="skeleton h-6 w-32" />
+        <div className="skeleton h-3 w-24" />
+        <div className="skeleton h-8 w-24 rounded-md" />
+      </div>
     </div>
   );
 }
 
-// Rename Dataset Modal
-function RenameDatasetModal({ dataset, onClose, onDone, onError }) {
-  // Track the rename request state
-  const [loading, setLoading] = useState(false);
+/* ------------------------------------------------------------------ */
+/* History Modal                                                       */
+/* ------------------------------------------------------------------ */
 
-  // Set up form state and validation
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm({
-    defaultValues: { name: dataset.name },
+const changeTypeBadge = (type) => {
+  switch (type) {
+    case "import":
+      return "badge-info";
+    case "annotation":
+      return "badge-success";
+    case "update":
+      return "badge-warning";
+    case "restore":
+      return "badge-secondary";
+    default:
+      return "";
+  }
+};
+
+function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
+  const queryClient = useQueryClient();
+  const [restoringVersion, setRestoringVersion] = useState(null);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ["versions", commentId],
+    queryFn: () => getCommentVersions(commentId),
+    enabled: !!commentId,
   });
 
-  // Submit the new dataset name
-  const onSubmit = async (values) => {
-    const trimmed = values.name.trim();
+  const versions = data?.versions || [];
 
-    // Close without making a request if the name hasn't changed
-    if (trimmed === dataset.name) {
-      onClose();
-      return;
-    }
+  const handleRestore = async (version) => {
+    const ok = await confirmAction(
+      `Restore from v${version}?`,
+      "A new version will be created with the state of v" +
+        version +
+        ". Your history is preserved — nothing is deleted.",
+      "Restore",
+    );
+    if (!ok) return;
 
-    setLoading(true);
+    setRestoringVersion(version);
 
     try {
-      // Update the dataset name
-      await renameDataset(dataset._id, { name: trimmed });
-      onDone();
+      await restoreCommentVersion(commentId, version);
+      await queryClient.invalidateQueries({
+        queryKey: ["versions", commentId],
+      });
+      await queryClient.invalidateQueries({ queryKey: ["comments"] });
+      await queryClient.invalidateQueries({
+        queryKey: ["dataset", datasetId],
+      });
+      onRestored(`Restored from v${version}`);
     } catch (err) {
-      // Show the error returned by the API
-      onError(err?.response?.data?.error || err.message);
-      setLoading(false);
+      alertError(
+        "Restore failed",
+        err?.response?.data?.error || err.message || "Unknown error",
+      );
+    } finally {
+      setRestoringVersion(null);
     }
   };
 
   return (
     <div className="modal modal-open">
-      <div className="modal-box">
-
+      <div className="modal-box max-w-2xl bg-base-100/95 backdrop-blur-xl border border-base-content/5 shadow-2xl p-0">
         {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-lg flex items-center gap-2">
-            <Pencil className="w-5 h-5" />
-            Rename Dataset
-          </h3>
-
-          <button
-            className="btn btn-sm btn-ghost btn-circle"
-            onClick={onClose}
-            disabled={loading}
-          >
+        <div className="flex items-center justify-between p-5 border-b border-base-content/5">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-secondary/10 text-secondary flex items-center justify-center">
+              <History className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="font-semibold leading-tight">Version History</h3>
+              <p className="text-xs text-base-content/50">
+                Restoring creates a new version — nothing is deleted
+              </p>
+            </div>
+          </div>
+          <button className="btn btn-sm btn-ghost btn-circle" onClick={onClose}>
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
-          <div className="form-control">
-            <label className="label">
-              <span className="label-text">New name</span>
-            </label>
+        {/* Body */}
+        <div className="p-5 max-h-[65vh] overflow-y-auto">
+          {isLoading && <HistoryListSkeleton rows={3} />}
 
-            <input
-              type="text"
-              className="input input-bordered w-full"
-              autoFocus
-              {...register("name", {
-                required: "Name is required",
-                validate: (v) =>
-                  v.trim().length > 0 || "Name cannot be empty",
-              })}
+          {!isLoading && versions.length === 0 && (
+            <EmptyState
+              icon={History}
+              title="No versions yet"
+              hint="Versions appear as the comment is edited."
             />
+          )}
 
-            {/* Show validation error or the original name */}
-            {errors.name ? (
-              <label className="label">
-                <span className="label-text-alt text-error">
-                  {errors.name.message}
-                </span>
-              </label>
-            ) : (
-              <label className="label">
-                <span className="label-text-alt text-base-content/50">
-                  Was: {dataset.name}
-                </span>
-              </label>
-            )}
-          </div>
+          {!isLoading && versions.length > 0 && (
+            <ul className="space-y-2">
+              {versions.map((v, idx) => {
+                const isLatest = idx === 0;
+                const isRestore = v.changeType === "restore";
 
-          <div className="modal-action">
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={onClose}
-              disabled={loading}
-            >
-              Cancel
-            </button>
+                return (
+                  <li
+                    key={v._id}
+                    className={`rounded-xl border p-3.5 transition-colors ${
+                      isLatest
+                        ? "border-primary/40 bg-primary/5"
+                        : "border-base-content/5 hover:border-base-content/10"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span
+                          className={`badge badge-sm gap-1 ${
+                            isLatest ? "badge-primary" : "badge-ghost"
+                          }`}
+                        >
+                          {isLatest && <Sparkles className="w-2.5 h-2.5" />}v
+                          {v.version}
+                          {isLatest && " · current"}
+                        </span>
 
-            <button
-              type="submit"
-              className="btn btn-primary gap-2"
-              disabled={loading}
-            >
-              {loading ? (
-                <span className="loading loading-spinner loading-sm" />
-              ) : (
-                <>
-                  <Pencil className="w-4 h-4" />
-                  Rename
-                </>
-              )}
-            </button>
-          </div>
-        </form>
+                        <span
+                          className={`badge badge-sm badge-outline capitalize ${changeTypeBadge(
+                            v.changeType,
+                          )}`}
+                        >
+                          {v.changeType}
+                        </span>
+
+                        {isRestore && v.restoredFrom && (
+                          <span className="badge badge-sm badge-accent gap-1">
+                            <RotateCcw className="w-2.5 h-2.5" />
+                            from v{v.restoredFrom}
+                          </span>
+                        )}
+                      </div>
+
+                      {!isLatest && (
+                        <button
+                          className="btn btn-xs btn-outline gap-1 normal-case"
+                          onClick={() => handleRestore(v.version)}
+                          disabled={restoringVersion !== null}
+                        >
+                          {restoringVersion === v.version ? (
+                            <span className="loading loading-spinner loading-xs" />
+                          ) : (
+                            <RotateCcw className="w-3 h-3" />
+                          )}
+                          Restore
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-1 text-[11px] text-base-content/50 mb-3">
+                      <Clock className="w-3 h-3" />
+                      {new Date(v.createdAt).toLocaleString()}
+                    </div>
+
+                    {/* Snapshot grid */}
+                    <div className="grid grid-cols-3 gap-2 mb-3">
+                      <SnapshotChip
+                        label="Sentiment"
+                        value={v.snapshot.sentiment}
+                      />
+                      <SnapshotChip label="Type" value={v.snapshot.type} />
+                      <SnapshotChip label="Status" value={v.snapshot.status} />
+                    </div>
+
+                    {/* Text snapshot */}
+                    <div className="rounded-lg bg-base-200/50 border border-base-content/5 p-2.5 mb-2">
+                      <p className="text-[10px] uppercase tracking-widest text-base-content/50 font-semibold mb-1">
+                        Text
+                      </p>
+                      <p className="text-xs whitespace-pre-wrap wrap-break-word">
+                        {v.snapshot.commentText}
+                      </p>
+                    </div>
+
+                    {v.changedFields?.length > 0 && (
+                      <div className="flex items-center gap-2 text-[11px]">
+                        <span className="text-base-content/50">Changed:</span>
+                        <div className="flex flex-wrap gap-1">
+                          {v.changedFields.map((f) => (
+                            <span
+                              key={f}
+                              className="badge badge-xs badge-ghost font-mono"
+                            >
+                              {f}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end gap-2 p-5 border-t border-base-content/5 bg-base-200/40">
+          <button
+            className="btn btn-sm btn-ghost normal-case font-normal"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
       </div>
 
-      {/* Prevent closing while the rename request is running */}
       <div
-        className="modal-backdrop"
-        onClick={loading ? undefined : onClose}
+        className="modal-backdrop bg-base-content/30 backdrop-blur-sm"
+        onClick={onClose}
         aria-hidden="true"
       />
     </div>
   );
 }
 
-// Display a badge based on the dataset status
-function StatusBadge({ status }) {
-  const map = {
-    pending: "badge-warning",
-    processing: "badge-info",
-    completed: "badge-success",
-    failed: "badge-error",
-  };
-
+function SnapshotChip({ label, value }) {
   return (
-    <span className={`badge ${map[status] || "badge-ghost"} badge-sm`}>
-      {status}
-    </span>
+    <div className="rounded-lg bg-base-200/50 border border-base-content/5 px-2 py-1.5">
+      <p className="text-[9px] uppercase tracking-widest text-base-content/50 font-semibold">
+        {label}
+      </p>
+      <p className="text-xs font-medium truncate">{value || "—"}</p>
+    </div>
+  );
+}
+
+function HistoryListSkeleton({ rows = 3 }) {
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="border border-base-content/5 rounded-xl p-3.5">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex gap-2">
+              <div className="skeleton h-5 w-20 rounded-full" />
+              <div className="skeleton h-5 w-24 rounded-full" />
+            </div>
+            <div className="skeleton h-6 w-20 rounded-md" />
+          </div>
+          <div className="skeleton h-3 w-40 mb-3" />
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            <div className="skeleton h-10 rounded-lg" />
+            <div className="skeleton h-10 rounded-lg" />
+            <div className="skeleton h-10 rounded-lg" />
+          </div>
+          <div className="skeleton h-12 w-full rounded-lg" />
+        </div>
+      ))}
+    </div>
   );
 }

@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
-import { LogIn, UserPlus } from "lucide-react";
+import { LogIn, Mail, Lock, ArrowRight, Sparkles } from "lucide-react";
 import { useAuth } from "../../context/useAuth";
 
 export default function LoginPage() {
@@ -34,87 +34,121 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-base-200 p-4">
-      <div className="card w-full max-w-sm bg-base-100 shadow-xl">
-        <div className="card-body">
-          <h2 className="card-title text-2xl justify-center mb-2">Login</h2>
-          <p className="text-center text-sm text-base-content/60 mb-4">
-            Annotator Dashboard
+    <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-base-300 via-base-200 to-base-300 p-4 relative overflow-hidden">
+      {/* Decorative background blobs */}
+      <div className="absolute top-0 -left-40 w-96 h-96 bg-primary/20 rounded-full blur-3xl" />
+      <div className="absolute bottom-0 -right-40 w-96 h-96 bg-secondary/20 rounded-full blur-3xl" />
+
+      <div className="relative w-full max-w-md">
+        {/* Brand header */}
+        <div className="flex flex-col items-center mb-6">
+          <div className="w-14 h-14 rounded-2xl bg-primary flex items-center justify-center shadow-lg shadow-primary/30 mb-3">
+            <Sparkles className="w-7 h-7 text-primary-content" />
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight">Welcome back</h1>
+          <p className="text-sm text-base-content/60 mt-1">
+            Sign in to your Annotator Dashboard
           </p>
-
-          {error && (
-            <div className="alert alert-error text-sm py-2">
-              <span>{error}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text">Email</span>
-              </label>
-              <input
-                type="email"
-                className="input input-bordered w-full"
-                placeholder="admin@test.com"
-                autoFocus
-                {...register("email", {
-                  required: "Email is required",
-                })}
-              />
-              {errors.email && (
-                <label className="label">
-                  <span className="label-text-alt text-error">
-                    {errors.email.message}
-                  </span>
-                </label>
-              )}
-            </div>
-
-            <div className="form-control">
-              <label className="label">
-                <span className="label-text">Password</span>
-              </label>
-              <input
-                type="password"
-                className="input input-bordered w-full"
-                placeholder="••••••••"
-                {...register("password", {
-                  required: "Password is required",
-                })}
-              />
-              {errors.password && (
-                <label className="label">
-                  <span className="label-text-alt text-error">
-                    {errors.password.message}
-                  </span>
-                </label>
-              )}
-            </div>
-
-            <button
-              type="submit"
-              className="btn btn-primary w-full mt-2 gap-2"
-              disabled={loading}
-            >
-              {loading ? (
-                <span className="loading loading-spinner loading-sm" />
-              ) : (
-                <>
-                  <LogIn className="w-4 h-4" />
-                  Login
-                </>
-              )}
-            </button>
-          </form>
-
-          <div className="divider text-xs my-2">OR</div>
-
-          <Link to="/bootstrap" className="btn btn-ghost btn-sm w-full gap-1">
-            <UserPlus className="w-3.5 h-3.5" />
-            First time? Create admin
-          </Link>
         </div>
+
+        {/* Card */}
+        <div className="card bg-base-100/80 backdrop-blur-xl shadow-2xl border border-base-content/5">
+          <div className="card-body p-6 sm:p-8">
+            {error && (
+              <div className="alert alert-error text-sm py-2 mb-2 rounded-lg">
+                <span>{error}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+              {/* Email */}
+              <div className="form-control">
+                <label className="label pb-1.5">
+                  <span className="label-text font-medium text-xs uppercase tracking-wider text-base-content/60">
+                    Email
+                  </span>
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/40 pointer-events-none" />
+                  <input
+                    type="email"
+                    className={`input input-bordered w-full pl-10 focus:input-primary transition-all ${
+                      errors.email ? "input-error" : ""
+                    }`}
+                    placeholder="admin@test.com"
+                    autoFocus
+                    {...register("email", {
+                      required: "Email is required",
+                    })}
+                  />
+                </div>
+                {errors.email && (
+                  <p className="text-error text-xs mt-1.5">
+                    {errors.email.message}
+                  </p>
+                )}
+              </div>
+
+              {/* Password */}
+              <div className="form-control">
+                <label className="label pb-1.5">
+                  <span className="label-text font-medium text-xs uppercase tracking-wider text-base-content/60">
+                    Password
+                  </span>
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-base-content/40 pointer-events-none" />
+                  <input
+                    type="password"
+                    className={`input input-bordered w-full pl-10 focus:input-primary transition-all ${
+                      errors.password ? "input-error" : ""
+                    }`}
+                    placeholder="••••••••"
+                    {...register("password", {
+                      required: "Password is required",
+                    })}
+                  />
+                </div>
+                {errors.password && (
+                  <p className="text-error text-xs mt-1.5">
+                    {errors.password.message}
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="submit"
+                className="btn btn-primary w-full mt-2 gap-2 shadow-lg shadow-primary/20 hover:shadow-primary/30 transition-shadow group"
+                disabled={loading}
+              >
+                {loading ? (
+                  <span className="loading loading-spinner loading-sm" />
+                ) : (
+                  <>
+                    <LogIn className="w-4 h-4" />
+                    Sign in
+                    <ArrowRight className="w-4 h-4 ml-auto opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+                  </>
+                )}
+              </button>
+            </form>
+
+            <div className="divider text-[10px] uppercase tracking-widest text-base-content/40 my-1">
+              or
+            </div>
+
+            <Link
+              to="/bootstrap"
+              className="btn btn-ghost btn-sm w-full gap-2 text-base-content/70 hover:text-base-content normal-case font-normal"
+            >
+              First time here? Create admin account
+            </Link>
+          </div>
+        </div>
+
+        <p className="text-center text-xs text-base-content/40 mt-6">
+          © {new Date().getFullYear()} Annotator Dashboard
+        </p>
       </div>
     </div>
   );
