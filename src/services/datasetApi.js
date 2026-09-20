@@ -1,32 +1,34 @@
 // src/services/datasetApi.js
 import api from "./api";
-import { tokenStore } from "./api";
-
-const authHeader = () => ({
-  headers: { Authorization: `Bearer ${tokenStore.get()}` },
-});
 
 export const listDatasets = (params) =>
-  api.get("/datasets", { ...authHeader(), params }).then((r) => r.data);
+  api.get("/datasets", { params }).then((r) => r.data);
 
 export const getDataset = (id) =>
-  api.get(`/datasets/${id}`, authHeader()).then((r) => r.data);
+  api.get(`/datasets/${id}`).then((r) => r.data);
 
 export const renameDataset = (id, data) =>
-  api.patch(`/datasets/${id}`, data, authHeader()).then((r) => r.data);
+  api.patch(`/datasets/${id}`, data).then((r) => r.data);
 
 export const assignDataset = (id, assignedTo) =>
-  api
-    .patch(`/datasets/${id}/assign`, { assignedTo }, authHeader())
-    .then((r) => r.data);
+  api.patch(`/datasets/${id}/assign`, { assignedTo }).then((r) => r.data);
 
 export const duplicateDataset = (id, name) =>
-  api
-    .post(`/datasets/${id}/duplicate`, { name }, authHeader())
-    .then((r) => r.data);
+  api.post(`/datasets/${id}/duplicate`, { name }).then((r) => r.data);
 
 export const deleteDataset = (id) =>
-  api.delete(`/datasets/${id}`, authHeader()).then((r) => r.data);
+  api.delete(`/datasets/${id}`).then((r) => r.data);
+
+// NEW
+export const getDatasetStats = () =>
+  api.get("/datasets/stats").then((r) => r.data);
+
+// NEW — dry-run upload, returns { preview: {...} }
+export const previewImport = (file) => {
+  const form = new FormData();
+  form.append("file", file);
+  return api.post("/datasets/preview", form).then((r) => r.data);
+};
 
 // Import a File
 export const importDataset = (file, name, onProgress) => {
@@ -36,10 +38,6 @@ export const importDataset = (file, name, onProgress) => {
 
   return api
     .post("/datasets/import", form, {
-      headers: {
-        Authorization: `Bearer ${tokenStore.get()}`,
-        "Content-Type": "multipart/form-data",
-      },
       onUploadProgress: (e) => {
         if (onProgress && e.total) {
           onProgress(Math.round((e.loaded * 100) / e.total));
