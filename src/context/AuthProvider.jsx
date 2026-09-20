@@ -11,32 +11,31 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(() => !!tokenStore.get());
 
+  // Bootstrap: if a token exists, fetch /me
   useEffect(() => {
     const token = tokenStore.get();
-
-    if (!token) {
-      return;
-    }
+    if (!token) return;
 
     getMe()
-      .then((res) => {
-        setUser(res.user);
-      })
+      .then((res) => setUser(res.user))
       .catch(() => {
         tokenStore.clear();
         setUser(null);
       })
-      .finally(() => {
-        setLoading(false);
-      });
+      .finally(() => setLoading(false));
+  }, []);
+
+  // Listen for global 401 → clear user
+  useEffect(() => {
+    const onExpired = () => setUser(null);
+    window.addEventListener("auth-expired", onExpired);
+    return () => window.removeEventListener("auth-expired", onExpired);
   }, []);
 
   const login = async (email, password) => {
     const res = await loginApi({ email, password });
-
     tokenStore.set(res.token);
     setUser(res.user);
-
     return res.user;
   };
 
@@ -44,9 +43,8 @@ export function AuthProvider({ children }) {
     try {
       await logoutApi();
     } catch {
-      // Ignore logout API errors
+      /* ignore */
     }
-
     tokenStore.clear();
     setUser(null);
   };
