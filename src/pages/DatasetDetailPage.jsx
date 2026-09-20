@@ -1,10 +1,9 @@
-// React
+// src/pages/DatasetDetailPage.jsx
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-// Icons
 import {
   ArrowLeft,
   UserPlus,
@@ -20,28 +19,35 @@ import {
   ChevronRight,
   Filter,
   ListFilter,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 
-// Services
 import {
   listComments,
   annotateComment,
   deleteComment,
   getCommentVersions,
   restoreCommentVersion,
+  bulkAnnotateComments,
 } from "../services/commentApi";
 import { listUsers } from "../services/userApi";
 import { getDataset, assignDataset } from "../services/datasetApi";
 
-// Context
 import { useAuth } from "../context/useAuth";
-
-// Lib
 import { toast, alertError, confirmAction, confirmDelete } from "../lib/swal";
+import {
+  getDatasetDisplayStatus,
+  statusLabel,
+} from "../lib/datasetStatus";
 
 const PAGE_SIZES = [5, 10, 20, 50];
 const SENTIMENTS = ["positive", "negative", "neutral"];
 const TYPES = ["bangla", "english", "banglish"];
+
+// Shared frozen-in-practice empty selection, reused when the active filter
+// signature changed (members are never mutated in place).
+const EMPTY_IDS = new Set();
 
 export default function DatasetDetailPage() {
   const { id } = useParams();
@@ -49,7 +55,7 @@ export default function DatasetDetailPage() {
   const isAdmin = user?.role === "admin";
   const queryClient = useQueryClient();
 
-  // Pagination and filter state
+  // Pagination + filters
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [pageSize, setPageSize] = useState(20);
@@ -58,10 +64,41 @@ export default function DatasetDetailPage() {
   const [hideAnnotated, setHideAnnotated] = useState(true);
   const [historyCommentId, setHistoryCommentId] = useState(null);
 
-  // Store unsaved changes for each comment
+  // Row-level unsaved changes
   const [rows, setRows] = useState({});
 
-  // Fetch dataset details and summary
+  // Bulk selection + state
+  // The selection is scoped to the filter signature it was made under, so
+  // paginating or changing filters derives an empty selection automatically
+  // (no clearing effect / cascading render needed).
+  const filtersKey = [
+    page,
+    pageSize,
+    filterStatus,
+    search,
+    hideAnnotated,
+  ].join("|");
+  const [selection, setSelection] = useState(() => ({
+    key: null,
+    ids: new Set(),
+  }));
+  const [bulkBusy, setBulkBusy] = useState(false);
+
+  // Bulk draft — the selects only stage a change; nothing is written until the
+  // user presses Apply in the bulk bar.
+  const [bulkSentiment, setBulkSentiment] = useState("");
+  const [bulkType, setBulkType] = useState("");
+
+  const selectedIds =
+    selection.key === filtersKey ? selection.ids : EMPTY_IDS;
+
+  const updateSelection = (updater) => {
+    setSelection((prev) => ({
+      key: filtersKey,
+      ids: updater(prev.key === filtersKey ? prev.ids : EMPTY_IDS),
+    }));
+  };
+
   const { data: dsData, isLoading: loadingDs } = useQuery({
     queryKey: ["dataset", id],
     queryFn: () => getDataset(id),
@@ -76,7 +113,10 @@ export default function DatasetDetailPage() {
       ? Math.round((summary.annotated / summary.total) * 100)
       : 0;
 
-  // Fetch users for admin assignment controls
+  // dataset.status only tracks the import job, so derive the badge from the
+  // annotation progress: a freshly imported dataset is "in progress", not done.
+  const displayStatus = getDatasetDisplayStatus(dataset, summary);
+
   const { data: usersData } = useQuery({
     queryKey: ["users"],
     queryFn: listUsers,
@@ -93,7 +133,6 @@ export default function DatasetDetailPage() {
     return u ? u.name : "(removed)";
   };
 
-  // Build query parameters for the comments request
   const params = {
     datasetId: id,
     page,
@@ -113,7 +152,8 @@ export default function DatasetDetailPage() {
   const total = commentsData?.total || 0;
   const totalPages = commentsData?.totalPages || 1;
 
-  // Update unsaved changes for a specific comment
+  // ---------- Row helpers ----------
+
   const setRow = (commentId, patch) => {
     setRows((prev) => ({
       ...prev,
@@ -121,7 +161,6 @@ export default function DatasetDetailPage() {
     }));
   };
 
-  // Get the current values for a comment
   const resolveRow = (c) => {
     const local = rows[c._id] || {};
     return {
@@ -196,6 +235,11 @@ export default function DatasetDetailPage() {
 
     try {
       await deleteComment(commentId);
+      updateSelection((prev) => {
+        const next = new Set(prev);
+        next.delete(commentId);
+        return next;
+      });
       queryClient.invalidateQueries({ queryKey: ["comments"] });
       queryClient.invalidateQueries({ queryKey: ["dataset", id] });
     } catch (err) {
@@ -217,6 +261,85 @@ export default function DatasetDetailPage() {
     setPage(1);
   };
 
+  // ---------- Bulk selection ----------
+
+  const allOnPageSelected =
+    comments.length > 0 && comments.every((c) => selectedIds.has(c._id));
+
+  const someOnPageSelected =
+    !allOnPageSelected && comments.some((c) => selectedIds.has(c._id));
+
+  const toggleSelectAllOnPage = () => {
+    if (allOnPageSelected) {
+      updateSelection((prev) => {
+        const next = new Set(prev);
+        comments.forEach((c) => next.delete(c._id));
+        return next;
+      });
+    } else {
+      updateSelection((prev) => {
+        const next = new Set(prev);
+        comments.forEach((c) => next.add(c._id));
+        return next;
+      });
+    }
+  };
+
+  const toggleSelected = (commentId) => {
+    updateSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(commentId)) next.delete(commentId);
+      else next.add(commentId);
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    updateSelection(() => new Set());
+    setBulkSentiment("");
+    setBulkType("");
+  };
+
+  // ---------- Bulk actions ----------
+
+  // At least one of the two fields must be picked before Apply becomes usable.
+  const hasBulkDraft = Boolean(bulkSentiment || bulkType);
+
+  const handleBulkAnnotate = async (patch) => {
+    if (selectedIds.size === 0 || bulkBusy) return;
+    setBulkBusy(true);
+    try {
+      const res = await bulkAnnotateComments({
+        ids: Array.from(selectedIds),
+        ...patch,
+      });
+      toast(`Updated ${res.updated} of ${res.requested}`);
+      clearSelection();
+      queryClient.invalidateQueries({ queryKey: ["comments"] });
+      queryClient.invalidateQueries({ queryKey: ["dataset", id] });
+    } catch (err) {
+      alertError(
+        "Bulk update failed",
+        err?.response?.data?.error || err.message || "Unknown error",
+      );
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  // Sole trigger for bulk annotation: the bar's Apply button builds the patch
+  // from whatever the user staged, so picking an option alone changes nothing.
+  const handleBulkSubmit = (e) => {
+    e.preventDefault();
+    if (!hasBulkDraft || bulkBusy) return;
+
+    const patch = {};
+    if (bulkSentiment) patch.sentiment = bulkSentiment;
+    if (bulkType) patch.type = bulkType;
+
+    handleBulkAnnotate(patch);
+  };
+
   // ---------- Render ----------
 
   if (loadingDs) {
@@ -235,7 +358,7 @@ export default function DatasetDetailPage() {
   }
 
   return (
-    <div>
+    <div className="pb-28">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
         <div className="min-w-0">
@@ -251,7 +374,7 @@ export default function DatasetDetailPage() {
           </h1>
           <p className="text-xs sm:text-sm text-base-content/60 mt-1 flex items-center gap-2 flex-wrap">
             <span className="truncate">{dataset.originalFileName}</span>
-            <StatusBadge status={dataset.status} />
+            <StatusBadge status={displayStatus} />
           </p>
         </div>
       </div>
@@ -260,7 +383,6 @@ export default function DatasetDetailPage() {
       <div className="card bg-base-100 shadow-sm border border-base-200 mb-4">
         <div className="card-body p-4 sm:p-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-4">
-            {/* Imported */}
             <div className="flex flex-col">
               <span className="text-xs text-base-content/50 uppercase tracking-wide">
                 Imported rows
@@ -279,7 +401,6 @@ export default function DatasetDetailPage() {
               </span>
             </div>
 
-            {/* Assignee */}
             <div className="flex flex-col">
               <span className="text-xs text-base-content/50 uppercase tracking-wide">
                 Assignee
@@ -289,7 +410,6 @@ export default function DatasetDetailPage() {
               </span>
             </div>
 
-            {/* Actions */}
             {isAdmin && (
               <div className="flex sm:justify-end items-center">
                 <AssignDropdown
@@ -301,7 +421,6 @@ export default function DatasetDetailPage() {
             )}
           </div>
 
-          {/* Progress */}
           <div>
             <div className="flex items-baseline justify-between mb-1">
               <span className="text-xs text-base-content/60 font-medium">
@@ -337,7 +456,6 @@ export default function DatasetDetailPage() {
       <div className="card bg-base-100 shadow-sm border border-base-200 mb-4">
         <div className="card-body p-3 sm:p-4">
           <div className="flex flex-col lg:flex-row lg:items-center gap-3">
-            {/* Left group: status + hide */}
             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
               <div className="flex items-center gap-1.5 text-base-content/60">
                 <Filter className="w-3.5 h-3.5" />
@@ -376,7 +494,6 @@ export default function DatasetDetailPage() {
               )}
             </div>
 
-            {/* Search */}
             <form
               onSubmit={handleSearchSubmit}
               className="join w-full lg:w-auto lg:ml-auto"
@@ -396,7 +513,6 @@ export default function DatasetDetailPage() {
               </button>
             </form>
 
-            {/* Count */}
             <span className="text-xs sm:text-sm text-base-content/60 whitespace-nowrap">
               <strong className="text-base-content">{total}</strong> comments
             </span>
@@ -424,6 +540,27 @@ export default function DatasetDetailPage() {
                 <table className="table table-zebra table-sm">
                   <thead className="sticky top-0 bg-base-100 z-10">
                     <tr>
+                      <th className="w-10">
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-xs btn-square"
+                          onClick={toggleSelectAllOnPage}
+                          title={
+                            allOnPageSelected
+                              ? "Deselect all on page"
+                              : "Select all on page"
+                          }
+                          aria-label="Toggle select all"
+                        >
+                          {allOnPageSelected ? (
+                            <CheckSquare className="w-4 h-4 text-primary" />
+                          ) : someOnPageSelected ? (
+                            <CheckSquare className="w-4 h-4 text-base-content/40" />
+                          ) : (
+                            <Square className="w-4 h-4 text-base-content/40" />
+                          )}
+                        </button>
+                      </th>
                       <th className="w-24">ID</th>
                       <th>Comment</th>
                       <th className="w-32">Sentiment</th>
@@ -443,13 +580,15 @@ export default function DatasetDetailPage() {
                         onSave={handleSave}
                         onDelete={handleDelete}
                         onHistory={setHistoryCommentId}
+                        selected={selectedIds.has(c._id)}
+                        onToggleSelect={toggleSelected}
                       />
                     ))}
                   </tbody>
                 </table>
               </div>
 
-              {/* Mobile / tablet cards */}
+              {/* Mobile cards */}
               <div className="lg:hidden divide-y divide-base-200">
                 {comments.map((c) => (
                   <CommentCard
@@ -461,6 +600,8 @@ export default function DatasetDetailPage() {
                     onSave={handleSave}
                     onDelete={handleDelete}
                     onHistory={setHistoryCommentId}
+                    selected={selectedIds.has(c._id)}
+                    onToggleSelect={toggleSelected}
                   />
                 ))}
               </div>
@@ -514,6 +655,84 @@ export default function DatasetDetailPage() {
         </div>
       </div>
 
+      {/* Bulk actions bar — selects only stage a change, Apply sends it */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-[95vw]">
+          <form
+            onSubmit={handleBulkSubmit}
+            className="bg-base-100 rounded-xl shadow-2xl border border-base-200 px-4 py-3 flex items-center gap-2 sm:gap-3 flex-wrap justify-center"
+          >
+            <span className="text-sm font-medium whitespace-nowrap">
+              {selectedIds.size} selected
+            </span>
+
+            <div className="hidden sm:block w-px h-6 bg-base-content/10" />
+
+            <span className="hidden xl:inline text-xs text-base-content/50 whitespace-nowrap">
+              Pick sentiment and/or type, then Apply
+            </span>
+
+            <select
+              className="select select-bordered select-sm"
+              value={bulkSentiment}
+              onChange={(e) => setBulkSentiment(e.target.value)}
+              disabled={bulkBusy}
+              aria-label="Sentiment to apply"
+              title="Sentiment to apply to the selected comments"
+            >
+              <option value="">Sentiment…</option>
+              <option value="positive">positive</option>
+              <option value="negative">negative</option>
+              <option value="neutral">neutral</option>
+            </select>
+
+            <select
+              className="select select-bordered select-sm"
+              value={bulkType}
+              onChange={(e) => setBulkType(e.target.value)}
+              disabled={bulkBusy}
+              aria-label="Type to apply"
+              title="Type to apply to the selected comments"
+            >
+              <option value="">Type…</option>
+              <option value="bangla">bangla</option>
+              <option value="english">english</option>
+              <option value="banglish">banglish</option>
+            </select>
+
+            <button
+              type="submit"
+              className="btn btn-sm btn-primary gap-1.5"
+              disabled={bulkBusy || !hasBulkDraft}
+              title={
+                hasBulkDraft
+                  ? "Apply to the selected comments"
+                  : "Pick a sentiment or a type first"
+              }
+            >
+              {bulkBusy ? (
+                <span className="loading loading-spinner loading-sm" />
+              ) : (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  Apply
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              onClick={clearSelection}
+              disabled={bulkBusy}
+            >
+              Clear
+            </button>
+          </form>
+        </div>
+      )}
+
+      {/* History modal */}
       {historyCommentId && (
         <HistoryModal
           commentId={historyCommentId}
@@ -527,7 +746,7 @@ export default function DatasetDetailPage() {
 }
 
 /* ---------------------------------------------------------------- */
-/* Assign dropdown (portal-based, never clipped)                    */
+/* Assign dropdown (portal)                                         */
 /* ---------------------------------------------------------------- */
 function AssignDropdown({ annotators, assignedTo, onAssign }) {
   const [open, setOpen] = useState(false);
@@ -684,6 +903,8 @@ function CommentRow({
   onSave,
   onDelete,
   onHistory,
+  selected,
+  onToggleSelect,
 }) {
   const serverSentiment = SENTIMENTS.includes(comment.sentiment)
     ? comment.sentiment
@@ -694,6 +915,20 @@ function CommentRow({
 
   return (
     <tr className={dirty ? "bg-warning/5" : ""}>
+      <td>
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs btn-square"
+          onClick={() => onToggleSelect(comment._id)}
+          aria-label={selected ? "Deselect" : "Select"}
+        >
+          {selected ? (
+            <CheckSquare className="w-4 h-4 text-primary" />
+          ) : (
+            <Square className="w-4 h-4 text-base-content/40" />
+          )}
+        </button>
+      </td>
       <td className="text-xs font-mono text-base-content/60">
         {comment.sourceId}
       </td>
@@ -781,6 +1016,8 @@ function CommentCard({
   onSave,
   onDelete,
   onHistory,
+  selected,
+  onToggleSelect,
 }) {
   const serverSentiment = SENTIMENTS.includes(comment.sentiment)
     ? comment.sentiment
@@ -790,19 +1027,34 @@ function CommentCard({
   const canSave = dirty && !!row.sentiment && !!row.type;
 
   return (
-    <div className={`p-4 ${dirty ? "bg-warning/5" : ""}`}>
-      {/* Header */}
+    <div
+      className={`p-4 ${dirty ? "bg-warning/5" : ""} ${
+        selected ? "bg-primary/5" : ""
+      }`}
+    >
       <div className="flex items-start justify-between gap-3 mb-2">
-        <span className="text-xs font-mono text-base-content/50">
-          {comment.sourceId}
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="btn btn-ghost btn-xs btn-square -ml-1"
+            onClick={() => onToggleSelect(comment._id)}
+            aria-label={selected ? "Deselect" : "Select"}
+          >
+            {selected ? (
+              <CheckSquare className="w-4 h-4 text-primary" />
+            ) : (
+              <Square className="w-4 h-4 text-base-content/40" />
+            )}
+          </button>
+          <span className="text-xs font-mono text-base-content/50">
+            {comment.sourceId}
+          </span>
+        </div>
         <StatusBadge status={comment.status} />
       </div>
 
-      {/* Comment text */}
       <p className="text-sm mb-3 leading-relaxed">{comment.commentText}</p>
 
-      {/* Inputs */}
       <div className="grid grid-cols-2 gap-2 mb-3">
         <div>
           <label className="text-xs text-base-content/50 block mb-1">
@@ -844,7 +1096,6 @@ function CommentCard({
         </div>
       </div>
 
-      {/* Actions */}
       <div className="flex items-center gap-1 flex-wrap">
         <button
           className="btn btn-xs btn-primary gap-1 flex-1 sm:flex-none"
@@ -885,16 +1136,15 @@ function StatusBadge({ status }) {
   const map = {
     pending: "badge-warning",
     processing: "badge-info",
+    in_progress: "badge-info",
     completed: "badge-success",
     failed: "badge-error",
     annotated: "badge-success",
   };
 
   return (
-    <span
-      className={`badge ${map[status] || "badge-ghost"} badge-sm capitalize`}
-    >
-      {status}
+    <span className={`badge ${map[status] || "badge-ghost"} badge-sm`}>
+      {statusLabel(status)}
     </span>
   );
 }
@@ -905,14 +1155,12 @@ function StatusBadge({ status }) {
 function DatasetDetailSkeleton({ isAdmin }) {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-      {/* Header */}
       <div className="mb-6">
         <div className="skeleton h-3 w-32 mb-2" />
         <div className="skeleton h-8 w-64 mb-2" />
         <div className="skeleton h-4 w-48" />
       </div>
 
-      {/* Info card */}
       <div className="card bg-base-100 shadow-sm border border-base-200 mb-4">
         <div className="card-body p-4 sm:p-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
@@ -938,7 +1186,6 @@ function DatasetDetailSkeleton({ isAdmin }) {
         </div>
       </div>
 
-      {/* Filters card */}
       <div className="card bg-base-100 shadow-sm border border-base-200 mb-4">
         <div className="card-body p-4">
           <div className="flex flex-wrap gap-3">
@@ -949,7 +1196,6 @@ function DatasetDetailSkeleton({ isAdmin }) {
         </div>
       </div>
 
-      {/* Comments card */}
       <div className="card bg-base-100 shadow-sm border border-base-200">
         <div className="card-body p-0 sm:p-2">
           <CommentsTableSkeleton rows={6} />
@@ -964,11 +1210,11 @@ function CommentsTableSkeleton({ rows = 6 }) {
 
   return (
     <div className="p-4">
-      {/* Desktop */}
       <div className="hidden lg:block">
         <table className="table table-zebra table-sm">
           <thead>
             <tr>
+              <th className="w-10" />
               <th>ID</th>
               <th>Comment</th>
               <th>Sentiment</th>
@@ -980,6 +1226,9 @@ function CommentsTableSkeleton({ rows = 6 }) {
           <tbody>
             {skeletonRows.map((_, i) => (
               <tr key={i}>
+                <td>
+                  <div className="skeleton h-4 w-4 rounded" />
+                </td>
                 <td>
                   <div className="skeleton h-3 w-12" />
                 </td>
@@ -1009,7 +1258,6 @@ function CommentsTableSkeleton({ rows = 6 }) {
         </table>
       </div>
 
-      {/* Mobile */}
       <div className="lg:hidden divide-y divide-base-200">
         {skeletonRows.map((_, i) => (
           <div key={i} className="py-4">
@@ -1032,7 +1280,6 @@ function CommentsTableSkeleton({ rows = 6 }) {
         ))}
       </div>
 
-      {/* Pagination skeleton */}
       <div className="flex flex-col sm:flex-row justify-between gap-3 mt-4 pt-4 border-t border-base-200">
         <div className="skeleton h-6 w-32" />
         <div className="skeleton h-3 w-24 mx-auto" />
@@ -1043,19 +1290,23 @@ function CommentsTableSkeleton({ rows = 6 }) {
 }
 
 /* ---------------------------------------------------------------- */
-/* Version history modal                                            */
+/* Version history modal (paginated)                                */
 /* ---------------------------------------------------------------- */
 function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
   const queryClient = useQueryClient();
   const [restoringVersion, setRestoringVersion] = useState(null);
+  const [page, setPage] = useState(1);
+  const limit = 20;
 
   const { data, isLoading } = useQuery({
-    queryKey: ["versions", commentId],
-    queryFn: () => getCommentVersions(commentId),
+    queryKey: ["versions", commentId, page],
+    queryFn: () => getCommentVersions(commentId, { page, limit }),
     enabled: !!commentId,
   });
 
   const versions = data?.versions || [];
+  const totalPages = data?.totalPages || 1;
+  const total = data?.total || 0;
 
   const handleRestore = async (version) => {
     const ok = await confirmAction(
@@ -1077,6 +1328,7 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
         queryKey: ["dataset", datasetId],
       });
       onRestored(`Restored from v${version}`);
+      setPage(1);
     } catch (err) {
       alertError(
         "Restore failed",
@@ -1090,7 +1342,6 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
   return (
     <div className="modal modal-open">
       <div className="modal-box max-w-2xl p-0">
-        {/* Header */}
         <div className="flex items-center justify-between p-4 sm:p-6 border-b border-base-200">
           <div>
             <h3 className="font-bold text-lg flex items-center gap-2">
@@ -1098,7 +1349,8 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
               Version History
             </h3>
             <p className="text-xs text-base-content/50 mt-1">
-              Restoring creates a new version. No history is deleted.
+              {total} version{total === 1 ? "" : "s"} · restoring creates a new
+              version
             </p>
           </div>
           <button
@@ -1110,7 +1362,6 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
           </button>
         </div>
 
-        {/* Body */}
         <div className="p-4 sm:p-6 max-h-[70vh] overflow-y-auto">
           {isLoading && <HistoryListSkeleton rows={3} />}
 
@@ -1123,7 +1374,7 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
           {versions.length > 0 && (
             <ul className="space-y-2">
               {versions.map((v, idx) => {
-                const isLatest = idx === 0;
+                const isLatest = idx === 0 && page === 1;
                 const isRestore = v.changeType === "restore";
 
                 return (
@@ -1232,9 +1483,35 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
               })}
             </ul>
           )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between gap-3 mt-4 pt-4 border-t border-base-200">
+              <span className="text-xs text-base-content/60">
+                Page <strong>{page}</strong> of <strong>{totalPages}</strong>
+              </span>
+              <div className="join">
+                <button
+                  className="btn btn-xs join-item gap-1"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="w-3 h-3" />
+                  Prev
+                </button>
+                <button
+                  className="btn btn-xs join-item gap-1"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Next
+                  <ChevronRight className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Footer */}
         <div className="p-4 sm:p-6 border-t border-base-200 flex justify-end">
           <button className="btn" onClick={onClose}>
             Close
