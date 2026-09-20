@@ -19,22 +19,33 @@ export const duplicateDataset = (id, name) =>
 export const deleteDataset = (id) =>
   api.delete(`/datasets/${id}`).then((r) => r.data);
 
-// NEW
 export const getDatasetStats = () =>
   api.get("/datasets/stats").then((r) => r.data);
 
-// NEW — dry-run upload, returns { preview: {...} }
 export const previewImport = (file) => {
   const form = new FormData();
   form.append("file", file);
   return api.post("/datasets/preview", form).then((r) => r.data);
 };
 
-// Import a File
-export const importDataset = (file, name, onProgress) => {
+/**
+ * Import a file.
+ *
+ * @param {File} file
+ * @param {string} [name]                 - optional dataset name
+ * @param {Function} [onProgress]         - upload progress callback (0..100)
+ * @param {"skip"|"rename"} [dedupeStrategy]
+ */
+export const importDataset = (
+  file,
+  name,
+  onProgress,
+  dedupeStrategy = "skip",
+) => {
   const form = new FormData();
   form.append("file", file);
   if (name) form.append("name", name);
+  form.append("dedupeStrategy", dedupeStrategy);
 
   return api
     .post("/datasets/import", form, {

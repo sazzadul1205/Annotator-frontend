@@ -17,10 +17,13 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  Filter,
+  ChevronsLeft,
+  ChevronsRight,
   ListFilter,
   CheckSquare,
   Square,
+  Clock,
+  User,
 } from "lucide-react";
 
 import {
@@ -36,12 +39,9 @@ import { getDataset, assignDataset } from "../services/datasetApi";
 
 import { useAuth } from "../context/useAuth";
 import { toast, alertError, confirmAction, confirmDelete } from "../lib/swal";
-import {
-  getDatasetDisplayStatus,
-  statusLabel,
-} from "../lib/datasetStatus";
+import { getDatasetDisplayStatus } from "../lib/datasetStatus";
 
-const PAGE_SIZES = [5, 10, 20, 50];
+const PAGE_SIZES = [5, 10, 20, 25, 50, 100, 200];
 const SENTIMENTS = ["positive", "negative", "neutral"];
 const TYPES = ["bangla", "english", "banglish"];
 
@@ -58,7 +58,7 @@ export default function DatasetDetailPage() {
   // Pagination + filters
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
-  const [pageSize, setPageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(5);
   const [searchInput, setSearchInput] = useState("");
   const [filterStatus, setFilterStatus] = useState("");
   const [hideAnnotated, setHideAnnotated] = useState(true);
@@ -67,30 +67,22 @@ export default function DatasetDetailPage() {
   // Row-level unsaved changes
   const [rows, setRows] = useState({});
 
-  // Bulk selection + state
-  // The selection is scoped to the filter signature it was made under, so
-  // paginating or changing filters derives an empty selection automatically
-  // (no clearing effect / cascading render needed).
-  const filtersKey = [
-    page,
-    pageSize,
-    filterStatus,
-    search,
-    hideAnnotated,
-  ].join("|");
+  // Bulk selection + state — scoped to the filter signature it was made under
+  const filtersKey = [page, pageSize, filterStatus, search, hideAnnotated].join(
+    "|",
+  );
   const [selection, setSelection] = useState(() => ({
     key: null,
     ids: new Set(),
   }));
   const [bulkBusy, setBulkBusy] = useState(false);
 
-  // Bulk draft — the selects only stage a change; nothing is written until the
-  // user presses Apply in the bulk bar.
   const [bulkSentiment, setBulkSentiment] = useState("");
   const [bulkType, setBulkType] = useState("");
 
-  const selectedIds =
-    selection.key === filtersKey ? selection.ids : EMPTY_IDS;
+  const listTopRef = useRef(null);
+
+  const selectedIds = selection.key === filtersKey ? selection.ids : EMPTY_IDS;
 
   const updateSelection = (updater) => {
     setSelection((prev) => ({
@@ -98,6 +90,10 @@ export default function DatasetDetailPage() {
       ids: updater(prev.key === filtersKey ? prev.ids : EMPTY_IDS),
     }));
   };
+
+  /* ---------------------------------------------------------------- */
+  /* Data                                                              */
+  /* ---------------------------------------------------------------- */
 
   const { data: dsData, isLoading: loadingDs } = useQuery({
     queryKey: ["dataset", id],
@@ -113,8 +109,6 @@ export default function DatasetDetailPage() {
       ? Math.round((summary.annotated / summary.total) * 100)
       : 0;
 
-  // dataset.status only tracks the import job, so derive the badge from the
-  // annotation progress: a freshly imported dataset is "in progress", not done.
   const displayStatus = getDatasetDisplayStatus(dataset, summary);
 
   const { data: usersData } = useQuery({
@@ -152,7 +146,9 @@ export default function DatasetDetailPage() {
   const total = commentsData?.total || 0;
   const totalPages = commentsData?.totalPages || 1;
 
-  // ---------- Row helpers ----------
+  /* ---------------------------------------------------------------- */
+  /* Row helpers                                                       */
+  /* ---------------------------------------------------------------- */
 
   const setRow = (commentId, patch) => {
     setRows((prev) => ({
@@ -178,6 +174,8 @@ export default function DatasetDetailPage() {
       return next;
     });
   };
+
+  const dirtyCount = Object.keys(rows).length;
 
   const handleSave = async (comment) => {
     const row = resolveRow(comment);
@@ -261,7 +259,22 @@ export default function DatasetDetailPage() {
     setPage(1);
   };
 
-  // ---------- Bulk selection ----------
+  const goToPage = (p) => {
+    if (p === page) return;
+    setPage(p);
+    if (listTopRef.current) {
+      const yOffset = -140;
+      const y =
+        listTopRef.current.getBoundingClientRect().top +
+        window.pageYOffset +
+        yOffset;
+      window.scrollTo({ top: y, behavior: "smooth" });
+    }
+  };
+
+  /* ---------------------------------------------------------------- */
+  /* Bulk selection                                                    */
+  /* ---------------------------------------------------------------- */
 
   const allOnPageSelected =
     comments.length > 0 && comments.every((c) => selectedIds.has(c._id));
@@ -300,9 +313,10 @@ export default function DatasetDetailPage() {
     setBulkType("");
   };
 
-  // ---------- Bulk actions ----------
+  /* ---------------------------------------------------------------- */
+  /* Bulk actions                                                      */
+  /* ---------------------------------------------------------------- */
 
-  // At least one of the two fields must be picked before Apply becomes usable.
   const hasBulkDraft = Boolean(bulkSentiment || bulkType);
 
   const handleBulkAnnotate = async (patch) => {
@@ -327,8 +341,6 @@ export default function DatasetDetailPage() {
     }
   };
 
-  // Sole trigger for bulk annotation: the bar's Apply button builds the patch
-  // from whatever the user staged, so picking an option alone changes nothing.
   const handleBulkSubmit = (e) => {
     e.preventDefault();
     if (!hasBulkDraft || bulkBusy) return;
@@ -340,7 +352,9 @@ export default function DatasetDetailPage() {
     handleBulkAnnotate(patch);
   };
 
-  // ---------- Render ----------
+  /* ---------------------------------------------------------------- */
+  /* Render                                                            */
+  /* ---------------------------------------------------------------- */
 
   if (loadingDs) {
     return <DatasetDetailSkeleton isAdmin={isAdmin} />;
@@ -358,376 +372,330 @@ export default function DatasetDetailPage() {
   }
 
   return (
-    <div className="pb-28">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
-        <div className="min-w-0">
-          <Link
-            to="/datasets"
-            className="text-xs link link-hover mb-1 inline-flex items-center gap-1 text-base-content/60"
-          >
-            <ArrowLeft className="w-3 h-3" />
-            Back to Datasets
-          </Link>
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight truncate">
-            {dataset.name}
-          </h1>
-          <p className="text-xs sm:text-sm text-base-content/60 mt-1 flex items-center gap-2 flex-wrap">
-            <span className="truncate">{dataset.originalFileName}</span>
-            <StatusBadge status={displayStatus} />
-          </p>
-        </div>
-      </div>
-
-      {/* Info + progress */}
-      <div className="card bg-base-100 shadow-sm border border-base-200 mb-4">
-        <div className="card-body p-4 sm:p-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-4">
-            <div className="flex flex-col">
-              <span className="text-xs text-base-content/50 uppercase tracking-wide">
-                Imported rows
-              </span>
-              <span className="text-sm sm:text-base font-semibold">
-                {dataset.importedRows}
-                <span className="text-base-content/50 font-normal">
-                  {" "}
-                  / {dataset.totalRows}
-                </span>
-                {dataset.skippedRows > 0 && (
-                  <span className="text-warning ml-2 text-xs">
-                    ({dataset.skippedRows} skipped)
-                  </span>
-                )}
-              </span>
-            </div>
-
-            <div className="flex flex-col">
-              <span className="text-xs text-base-content/50 uppercase tracking-wide">
-                Assignee
-              </span>
-              <span className="text-sm sm:text-base font-semibold truncate">
+    <div className="pb-24">
+      {/* ---------- Header ---------- */}
+      <div className="mb-4">
+        <Link
+          to="/datasets"
+          className="text-xs link link-hover mb-1 inline-flex items-center gap-1 text-base-content/60"
+        >
+          <ArrowLeft className="w-3 h-3" />
+          Back to Datasets
+        </Link>
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight truncate">
+              {dataset.name}
+            </h1>
+            <div className="flex items-center gap-2 mt-0.5 text-xs text-base-content/60 flex-wrap">
+              <span className="truncate">{dataset.originalFileName}</span>
+              <span className="text-base-content/20">·</span>
+              <span className="flex items-center gap-1 shrink-0">
+                <User className="w-3 h-3" />
                 {isAdmin ? assigneeName() : "You"}
               </span>
-            </div>
-
-            {isAdmin && (
-              <div className="flex sm:justify-end items-center">
+              {isAdmin && (
                 <AssignDropdown
                   annotators={annotators}
                   assignedTo={dataset.assignedTo}
                   onAssign={handleAssign}
                 />
-              </div>
-            )}
-          </div>
-
-          <div>
-            <div className="flex items-baseline justify-between mb-1">
-              <span className="text-xs text-base-content/60 font-medium">
-                Annotation Progress
-              </span>
-              <span className="text-xs sm:text-sm">
-                <strong>{summary.annotated}</strong>
-                <span className="text-base-content/60"> / {summary.total}</span>
-                <span className="ml-2 badge badge-sm badge-ghost">
-                  {progressPct}%
-                </span>
-              </span>
-            </div>
-            <progress
-              className="progress progress-primary w-full"
-              value={summary.annotated}
-              max={summary.total || 1}
-            />
-            <div className="text-xs text-base-content/50 mt-1.5 flex items-center gap-1">
-              {summary.pending} pending
-              {summary.total > 0 && summary.pending === 0 && (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-success" />
-                  <span className="text-success font-medium">all done</span>
-                </>
               )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="card bg-base-100 shadow-sm border border-base-200 mb-4">
-        <div className="card-body p-3 sm:p-4">
-          <div className="flex flex-col lg:flex-row lg:items-center gap-3">
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-              <div className="flex items-center gap-1.5 text-base-content/60">
-                <Filter className="w-3.5 h-3.5" />
-                <span className="text-xs font-medium hidden sm:inline">
-                  Status
-                </span>
+      {/* ---------- Sticky: progress strip + toolbar ---------- */}
+      <div className="sticky top-16 z-20 -mx-3 px-3 pb-2 bg-base-200/80 backdrop-blur">
+        {/* Progress strip */}
+        <div className="card bg-base-100 border border-base-200 shadow-sm">
+          <div className="px-3 sm:px-4 py-2.5">
+            <div className="flex items-center gap-3">
+              <span
+                className={`text-xl sm:text-2xl font-bold tabular-nums leading-none shrink-0 ${
+                  progressPct === 100 ? "text-success" : "text-base-content"
+                }`}
+              >
+                {progressPct}%
+              </span>
+
+              <div className="flex-1 min-w-0">
+                <progress
+                  className={`progress w-full h-1.5 ${
+                    progressPct === 100
+                      ? "progress-success"
+                      : "progress-primary"
+                  }`}
+                  value={summary.annotated}
+                  max={summary.total || 1}
+                />
+                <div className="flex items-center justify-between text-[11px] text-base-content/50 mt-1">
+                  <span className="truncate">
+                    {summary.annotated.toLocaleString()} of{" "}
+                    {summary.total.toLocaleString()} annotated
+                  </span>
+                  <span className="shrink-0 ml-2">
+                    {summary.pending > 0 ? (
+                      <>{summary.pending.toLocaleString()} pending</>
+                    ) : (
+                      <span className="text-success font-medium">All done</span>
+                    )}
+                  </span>
+                </div>
               </div>
-              <select
-                className="select select-bordered select-sm w-full sm:w-auto"
-                value={filterStatus}
-                onChange={(e) => {
-                  setFilterStatus(e.target.value);
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                {dirtyCount > 0 && (
+                  <span className="badge badge-warning badge-sm gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                    {dirtyCount}
+                  </span>
+                )}
+                <StatusChip status={displayStatus} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Toolbar */}
+        <div className="card bg-base-100 border border-base-200 shadow-sm mt-1.5">
+          <div className="px-3 py-2 flex flex-wrap items-center gap-2">
+            {/* Filter pills */}
+            <div className="flex items-center gap-0.5">
+              <FilterPill
+                active={filterStatus === "" && hideAnnotated}
+                label="To do"
+                onClick={() => {
+                  setFilterStatus("");
+                  setHideAnnotated(true);
                   setPage(1);
                 }}
-              >
-                <option value="">All statuses</option>
-                <option value="pending">Pending only</option>
-                <option value="annotated">Annotated only</option>
-              </select>
-
-              {!filterStatus && (
-                <label className="label cursor-pointer gap-2 py-0">
-                  <input
-                    type="checkbox"
-                    className="checkbox checkbox-sm"
-                    checked={hideAnnotated}
-                    onChange={(e) => {
-                      setHideAnnotated(e.target.checked);
-                      setPage(1);
-                    }}
-                  />
-                  <span className="label-text text-xs sm:text-sm">
-                    Hide annotated
-                  </span>
-                </label>
-              )}
+              />
+              <FilterPill
+                active={filterStatus === "" && !hideAnnotated}
+                label="All"
+                onClick={() => {
+                  setFilterStatus("");
+                  setHideAnnotated(false);
+                  setPage(1);
+                }}
+              />
+              <FilterPill
+                active={filterStatus === "pending"}
+                label="Pending"
+                onClick={() => {
+                  setFilterStatus("pending");
+                  setPage(1);
+                }}
+              />
+              <FilterPill
+                active={filterStatus === "annotated"}
+                label="Done"
+                onClick={() => {
+                  setFilterStatus("annotated");
+                  setPage(1);
+                }}
+              />
             </div>
 
+            <span className="hidden sm:inline-flex items-center gap-1 text-xs text-base-content/50 pl-2 ml-1 border-l border-base-200">
+              <strong className="text-base-content">
+                {total.toLocaleString()}
+              </strong>
+              comment{total === 1 ? "" : "s"}
+            </span>
+
+            {/* Search */}
             <form
               onSubmit={handleSearchSubmit}
-              className="join w-full lg:w-auto lg:ml-auto"
+              className="join w-full sm:w-auto sm:ml-auto order-3 sm:order-2"
             >
-              <label className="input input-bordered input-sm join-item flex items-center gap-2 flex-1 lg:w-64">
-                <Search className="w-3.5 h-3.5 text-base-content/40" />
+              <label className="input input-bordered input-xs join-item flex items-center gap-1.5 flex-1 sm:w-56">
+                <Search className="w-3 h-3 text-base-content/40" />
                 <input
                   type="text"
-                  className="grow"
-                  placeholder="Search text..."
+                  className="grow text-xs"
+                  placeholder="Search text…"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
                 />
+                {searchInput && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-xs btn-circle -mr-1"
+                    onClick={() => {
+                      setSearchInput("");
+                      setSearch("");
+                      setPage(1);
+                    }}
+                    aria-label="Clear search"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                )}
               </label>
-              <button className="btn btn-sm join-item" type="submit">
+              <button className="btn btn-xs join-item" type="submit">
                 Go
               </button>
             </form>
-
-            <span className="text-xs sm:text-sm text-base-content/60 whitespace-nowrap">
-              <strong className="text-base-content">{total}</strong> comments
-            </span>
           </div>
         </div>
       </div>
 
-      {/* Comments */}
-      <div className="card bg-base-100 shadow-sm border border-base-200">
-        <div className="card-body p-0 sm:p-2">
-          {loadingComments ? (
-            <CommentsTableSkeleton rows={pageSize > 20 ? 8 : pageSize} />
-          ) : comments.length === 0 ? (
-            <div className="text-center py-12 px-4">
-              <ListFilter className="w-10 h-10 mx-auto text-base-content/30 mb-3" />
-              <p className="font-medium">No comments found</p>
-              <p className="text-sm text-base-content/60 mt-1">
-                Try adjusting your filters or search.
-              </p>
+      <div ref={listTopRef} className="mt-2" />
+
+      {/* ---------- Comments table ---------- */}
+      <div className="card bg-base-100 border border-base-200 shadow-sm overflow-hidden">
+        {loadingComments ? (
+          <CommentsTableSkeleton rows={Math.min(pageSize, 10)} />
+        ) : comments.length === 0 ? (
+          <div className="text-center py-16 px-4">
+            <ListFilter className="w-10 h-10 mx-auto text-base-content/30 mb-3" />
+            <p className="font-medium">No comments found</p>
+            <p className="text-sm text-base-content/60 mt-1">
+              {total === 0
+                ? "This dataset has no comments yet."
+                : "Try adjusting your filters or search."}
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="table table-xs table-pin-rows table-fixed w-full">
+                <thead className="bg-base-200/50 text-[10px] uppercase tracking-wider text-base-content/50">
+                  <tr>
+                    <th className="w-8 px-2!">
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-xs btn-square"
+                        onClick={toggleSelectAllOnPage}
+                        title={
+                          allOnPageSelected
+                            ? "Deselect all on page"
+                            : "Select all on page"
+                        }
+                        aria-label="Toggle select all"
+                      >
+                        {allOnPageSelected ? (
+                          <CheckSquare className="w-3.5 h-3.5 text-primary" />
+                        ) : someOnPageSelected ? (
+                          <CheckSquare className="w-3.5 h-3.5 text-base-content/40" />
+                        ) : (
+                          <Square className="w-3.5 h-3.5 text-base-content/40" />
+                        )}
+                      </button>
+                    </th>
+                    <th className="w-20">ID</th>
+                    <th>Comment</th>
+                    <th className="w-32">Sentiment</th>
+                    <th className="w-32">Type</th>
+                    <th className="w-24">Status</th>
+                    <th className="w-28 text-right"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comments.map((c) => (
+                    <CommentTableRow
+                      key={c._id}
+                      comment={c}
+                      isAdmin={isAdmin}
+                      row={resolveRow(c)}
+                      setRow={setRow}
+                      onSave={handleSave}
+                      onDelete={handleDelete}
+                      onHistory={setHistoryCommentId}
+                      selected={selectedIds.has(c._id)}
+                      onToggleSelect={toggleSelected}
+                    />
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ) : (
-            <>
-              {/* Desktop table */}
-              <div className="hidden lg:block overflow-x-auto">
-                <table className="table table-zebra table-sm">
-                  <thead className="sticky top-0 bg-base-100 z-10">
-                    <tr>
-                      <th className="w-10">
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-xs btn-square"
-                          onClick={toggleSelectAllOnPage}
-                          title={
-                            allOnPageSelected
-                              ? "Deselect all on page"
-                              : "Select all on page"
-                          }
-                          aria-label="Toggle select all"
-                        >
-                          {allOnPageSelected ? (
-                            <CheckSquare className="w-4 h-4 text-primary" />
-                          ) : someOnPageSelected ? (
-                            <CheckSquare className="w-4 h-4 text-base-content/40" />
-                          ) : (
-                            <Square className="w-4 h-4 text-base-content/40" />
-                          )}
-                        </button>
-                      </th>
-                      <th className="w-24">ID</th>
-                      <th>Comment</th>
-                      <th className="w-32">Sentiment</th>
-                      <th className="w-28">Type</th>
-                      <th className="w-24">Status</th>
-                      <th className="text-right w-56">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comments.map((c) => (
-                      <CommentRow
-                        key={c._id}
-                        comment={c}
-                        isAdmin={isAdmin}
-                        row={resolveRow(c)}
-                        setRow={setRow}
-                        onSave={handleSave}
-                        onDelete={handleDelete}
-                        onHistory={setHistoryCommentId}
-                        selected={selectedIds.has(c._id)}
-                        onToggleSelect={toggleSelected}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
 
-              {/* Mobile cards */}
-              <div className="lg:hidden divide-y divide-base-200">
-                {comments.map((c) => (
-                  <CommentCard
-                    key={c._id}
-                    comment={c}
-                    isAdmin={isAdmin}
-                    row={resolveRow(c)}
-                    setRow={setRow}
-                    onSave={handleSave}
-                    onDelete={handleDelete}
-                    onHistory={setHistoryCommentId}
-                    selected={selectedIds.has(c._id)}
-                    onToggleSelect={toggleSelected}
-                  />
-                ))}
-              </div>
-
-              {/* Pagination */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-t border-base-200">
-                <div className="flex items-center gap-2 order-2 sm:order-1">
-                  <span className="text-xs text-base-content/60 whitespace-nowrap">
-                    Rows per page
-                  </span>
-                  <select
-                    className="select select-bordered select-xs w-20"
-                    value={pageSize}
-                    onChange={(e) =>
-                      handlePageSizeChange(Number(e.target.value))
-                    }
-                  >
-                    {PAGE_SIZES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <span className="text-xs text-base-content/60 text-center order-3 sm:order-2">
-                  Page <strong>{page}</strong> of <strong>{totalPages}</strong>
-                </span>
-
-                <div className="join order-1 sm:order-3 self-stretch sm:self-auto">
-                  <button
-                    className="btn btn-sm join-item flex-1 sm:flex-none gap-1"
-                    disabled={page <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  >
-                    <ChevronLeft className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Prev</span>
-                  </button>
-                  <button
-                    className="btn btn-sm join-item flex-1 sm:flex-none gap-1"
-                    disabled={page >= totalPages}
-                    onClick={() => setPage((p) => p + 1)}
-                  >
-                    <span className="hidden sm:inline">Next</span>
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+            {/* Pagination */}
+            <div className="border-t border-base-200 bg-base-200/30 px-3 py-2">
+              <Pagination
+                currentPage={page}
+                totalPages={totalPages}
+                totalItems={total}
+                pageSize={pageSize}
+                onPageChange={goToPage}
+                onPageSizeChange={handlePageSizeChange}
+              />
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Bulk actions bar — selects only stage a change, Apply sends it */}
+      {/* ---------- Bulk actions floating bar ---------- */}
       {selectedIds.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 max-w-[95vw]">
+        <div className="fixed bottom-4 right-4 z-40 max-w-[calc(100vw-2rem)]">
           <form
             onSubmit={handleBulkSubmit}
-            className="bg-base-100 rounded-xl shadow-2xl border border-base-200 px-4 py-3 flex items-center gap-2 sm:gap-3 flex-wrap justify-center"
+            className="bg-base-100 rounded-xl shadow-2xl border border-base-200 p-2.5 flex flex-col sm:flex-row items-stretch sm:items-center gap-2"
           >
-            <span className="text-sm font-medium whitespace-nowrap">
-              {selectedIds.size} selected
-            </span>
+            <div className="flex items-center gap-2 sm:pr-3 sm:border-r border-base-200">
+              <span className="text-sm font-semibold whitespace-nowrap">
+                {selectedIds.size} selected
+              </span>
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs btn-circle"
+                onClick={clearSelection}
+                disabled={bulkBusy}
+                aria-label="Clear selection"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
 
-            <div className="hidden sm:block w-px h-6 bg-base-content/10" />
+            <div className="flex items-center gap-2 flex-1">
+              <select
+                className="select select-bordered select-xs flex-1 min-w-0"
+                value={bulkSentiment}
+                onChange={(e) => setBulkSentiment(e.target.value)}
+                disabled={bulkBusy}
+                aria-label="Sentiment to apply"
+              >
+                <option value="">Sentiment…</option>
+                {SENTIMENTS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
 
-            <span className="hidden xl:inline text-xs text-base-content/50 whitespace-nowrap">
-              Pick sentiment and/or type, then Apply
-            </span>
+              <select
+                className="select select-bordered select-xs flex-1 min-w-0"
+                value={bulkType}
+                onChange={(e) => setBulkType(e.target.value)}
+                disabled={bulkBusy}
+                aria-label="Type to apply"
+              >
+                <option value="">Type…</option>
+                {TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
 
-            <select
-              className="select select-bordered select-sm"
-              value={bulkSentiment}
-              onChange={(e) => setBulkSentiment(e.target.value)}
-              disabled={bulkBusy}
-              aria-label="Sentiment to apply"
-              title="Sentiment to apply to the selected comments"
-            >
-              <option value="">Sentiment…</option>
-              <option value="positive">positive</option>
-              <option value="negative">negative</option>
-              <option value="neutral">neutral</option>
-            </select>
-
-            <select
-              className="select select-bordered select-sm"
-              value={bulkType}
-              onChange={(e) => setBulkType(e.target.value)}
-              disabled={bulkBusy}
-              aria-label="Type to apply"
-              title="Type to apply to the selected comments"
-            >
-              <option value="">Type…</option>
-              <option value="bangla">bangla</option>
-              <option value="english">english</option>
-              <option value="banglish">banglish</option>
-            </select>
-
-            <button
-              type="submit"
-              className="btn btn-sm btn-primary gap-1.5"
-              disabled={bulkBusy || !hasBulkDraft}
-              title={
-                hasBulkDraft
-                  ? "Apply to the selected comments"
-                  : "Pick a sentiment or a type first"
-              }
-            >
-              {bulkBusy ? (
-                <span className="loading loading-spinner loading-sm" />
-              ) : (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  Apply
-                </>
-              )}
-            </button>
-
-            <button
-              type="button"
-              className="btn btn-sm btn-ghost"
-              onClick={clearSelection}
-              disabled={bulkBusy}
-            >
-              Clear
-            </button>
+              <button
+                type="submit"
+                className="btn btn-xs btn-primary gap-1.5 shrink-0"
+                disabled={bulkBusy || !hasBulkDraft}
+              >
+                {bulkBusy ? (
+                  <span className="loading loading-spinner loading-xs" />
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-3 h-3" />
+                    Apply
+                  </>
+                )}
+              </button>
+            </div>
           </form>
         </div>
       )}
@@ -745,9 +713,363 @@ export default function DatasetDetailPage() {
   );
 }
 
-/* ---------------------------------------------------------------- */
-/* Assign dropdown (portal)                                         */
-/* ---------------------------------------------------------------- */
+/* ------------------------------------------------------------------ */
+/* Filter pill                                                         */
+/* ------------------------------------------------------------------ */
+
+function FilterPill({ active, label, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`btn btn-xs rounded-full normal-case font-normal ${
+        active ? "btn-primary" : "btn-ghost"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Status chip                                                         */
+/* ------------------------------------------------------------------ */
+
+function StatusChip({ status }) {
+  const map = {
+    importing: { label: "Importing", cls: "badge-info", spin: true },
+    failed: { label: "Failed", cls: "badge-error" },
+    complete: { label: "Complete", cls: "badge-success" },
+    in_progress: { label: "In progress", cls: "badge-primary" },
+    ready: { label: "Ready", cls: "badge-warning" },
+    unassigned: { label: "Unassigned", cls: "badge-ghost" },
+    empty: { label: "Empty", cls: "badge-ghost" },
+  };
+  const info = map[status] || map.empty;
+  return (
+    <span className={`badge badge-sm gap-1 ${info.cls} shrink-0`}>
+      {info.spin && (
+        <span className="w-2 h-2 rounded-full bg-current animate-pulse" />
+      )}
+      {info.label}
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Comment table row                                                   */
+/* ------------------------------------------------------------------ */
+
+function CommentTableRow({
+  comment,
+  isAdmin,
+  row,
+  setRow,
+  onSave,
+  onDelete,
+  onHistory,
+  selected,
+  onToggleSelect,
+}) {
+  const serverSentiment = SENTIMENTS.includes(comment.sentiment)
+    ? comment.sentiment
+    : "";
+  const serverType = TYPES.includes(comment.type) ? comment.type : "";
+  const dirty = row.sentiment !== serverSentiment || row.type !== serverType;
+  const canSave = dirty && !!row.sentiment && !!row.type;
+  const isDone = comment.status === "annotated";
+
+  return (
+    <tr
+      className={`group transition-colors ${
+        selected
+          ? "bg-primary/5"
+          : dirty
+            ? "bg-warning/10"
+            : isDone
+              ? "bg-success/3"
+              : ""
+      }`}
+    >
+      {/* Checkbox */}
+      <td className="px-2! align-middle">
+        <button
+          type="button"
+          className="btn btn-ghost btn-xs btn-square"
+          onClick={() => onToggleSelect(comment._id)}
+          aria-label={selected ? "Deselect comment" : "Select comment"}
+        >
+          {selected ? (
+            <CheckSquare className="w-3.5 h-3.5 text-primary" />
+          ) : (
+            <Square className="w-3.5 h-3.5 text-base-content/40" />
+          )}
+        </button>
+      </td>
+
+      {/* ID */}
+      <td className="align-middle">
+        <span
+          className="font-mono text-[11px] text-base-content/60 truncate block max-w-20"
+          title={comment.sourceId}
+        >
+          {comment.sourceId}
+        </span>
+      </td>
+
+      {/* Comment text */}
+      <td className="align-middle">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm truncate block" title={comment.commentText}>
+            {comment.commentText}
+          </span>
+          {dirty && (
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-warning shrink-0"
+              title="Unsaved changes"
+            />
+          )}
+        </div>
+      </td>
+
+      {/* Sentiment */}
+      <td className="align-middle">
+        <select
+          className={`select select-bordered select-xs w-full ${
+            dirty && !row.sentiment ? "select-warning" : ""
+          }`}
+          value={row.sentiment}
+          onChange={(e) => setRow(comment._id, { sentiment: e.target.value })}
+          aria-label="Sentiment"
+        >
+          <option value="">—</option>
+          {SENTIMENTS.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      </td>
+
+      {/* Type */}
+      <td className="align-middle">
+        <select
+          className={`select select-bordered select-xs w-full ${
+            dirty && !row.type ? "select-warning" : ""
+          }`}
+          value={row.type}
+          onChange={(e) => setRow(comment._id, { type: e.target.value })}
+          aria-label="Type"
+        >
+          <option value="">—</option>
+          {TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      </td>
+
+      {/* Status */}
+      <td className="align-middle">
+        {isDone ? (
+          <span className="badge badge-xs badge-success gap-1">
+            <CheckCircle2 className="w-2.5 h-2.5" />
+            Done
+          </span>
+        ) : (
+          <span className="badge badge-xs badge-warning gap-1">
+            <Clock className="w-2.5 h-2.5" />
+            Pending
+          </span>
+        )}
+      </td>
+
+      {/* Actions */}
+      <td className="align-middle text-right whitespace-nowrap">
+        <div className="flex items-center justify-end gap-0.5">
+          <button
+            className={`btn btn-xs gap-1 transition-opacity ${
+              canSave
+                ? "btn-primary opacity-100"
+                : "btn-ghost opacity-30 pointer-events-none"
+            }`}
+            onClick={() => onSave(comment)}
+            disabled={!canSave}
+            title={canSave ? "Save changes" : "No changes"}
+            aria-label="Save"
+          >
+            <Save className="w-3 h-3" />
+            Save
+          </button>
+
+          {isAdmin && (
+            <>
+              <button
+                className="btn btn-ghost btn-xs btn-square opacity-0 group-hover:opacity-100 focus:opacity-100"
+                onClick={() => onHistory(comment._id)}
+                title="Version history"
+                aria-label="Version history"
+              >
+                <History className="w-3 h-3" />
+              </button>
+              <button
+                className="btn btn-ghost btn-xs btn-square text-error hover:bg-error/10 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                onClick={() => onDelete(comment._id)}
+                title="Delete comment"
+                aria-label="Delete comment"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Pagination bar                                                      */
+/* ------------------------------------------------------------------ */
+
+function Pagination({
+  currentPage,
+  totalPages,
+  totalItems,
+  pageSize,
+  onPageChange,
+  onPageSizeChange,
+}) {
+  const pageNumbers = (() => {
+    const pages = [];
+    const maxButtons = 5;
+
+    if (totalPages <= maxButtons + 2) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+      return pages;
+    }
+
+    pages.push(1);
+
+    const left = Math.max(2, currentPage - 1);
+    const right = Math.min(totalPages - 1, currentPage + 1);
+
+    if (left > 2) pages.push("…");
+    for (let i = left; i <= right; i++) pages.push(i);
+    if (right < totalPages - 1) pages.push("…");
+
+    pages.push(totalPages);
+    return pages;
+  })();
+
+  const isFirst = currentPage === 1;
+  const isLast = currentPage === totalPages;
+
+  const from = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const to = Math.min(currentPage * pageSize, totalItems);
+
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <div className="flex items-center gap-3 text-xs text-base-content/60 order-2 sm:order-1">
+        <span className="tabular-nums whitespace-nowrap">
+          <strong className="text-base-content">{from}</strong>–
+          <strong className="text-base-content">{to}</strong> of{" "}
+          <strong className="text-base-content">
+            {totalItems.toLocaleString()}
+          </strong>
+        </span>
+
+        <div className="hidden sm:flex items-center gap-1.5 ml-2">
+          <span className="whitespace-nowrap">Rows</span>
+          <select
+            className="select select-bordered select-xs w-16"
+            value={pageSize}
+            onChange={(e) => onPageSizeChange(Number(e.target.value))}
+          >
+            {PAGE_SIZES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1 justify-center sm:justify-end order-1 sm:order-2">
+        <button
+          className="btn btn-xs btn-ghost btn-square"
+          disabled={isFirst}
+          onClick={() => onPageChange(1)}
+          aria-label="First page"
+        >
+          <ChevronsLeft className="w-3.5 h-3.5" />
+        </button>
+
+        <button
+          className="btn btn-xs btn-ghost btn-square"
+          disabled={isFirst}
+          onClick={() => onPageChange(currentPage - 1)}
+          aria-label="Previous page"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </button>
+
+        <div className="hidden sm:flex items-center gap-0.5 mx-1">
+          {pageNumbers.map((p, i) =>
+            p === "…" ? (
+              <span
+                key={`gap-${i}`}
+                className="w-6 text-center text-xs text-base-content/40 select-none"
+              >
+                …
+              </span>
+            ) : (
+              <button
+                key={p}
+                onClick={() => onPageChange(p)}
+                className={`btn btn-xs min-w-7 px-1.5 normal-case font-normal tabular-nums ${
+                  p === currentPage ? "btn-primary" : "btn-ghost"
+                }`}
+                aria-current={p === currentPage ? "page" : undefined}
+              >
+                {p}
+              </button>
+            ),
+          )}
+        </div>
+
+        <span className="sm:hidden px-2 text-xs tabular-nums">
+          <strong>{currentPage}</strong>
+          <span className="text-base-content/40"> / {totalPages}</span>
+        </span>
+
+        <button
+          className="btn btn-xs btn-ghost btn-square"
+          disabled={isLast}
+          onClick={() => onPageChange(currentPage + 1)}
+          aria-label="Next page"
+        >
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+
+        <button
+          className="btn btn-xs btn-ghost btn-square"
+          disabled={isLast}
+          onClick={() => onPageChange(totalPages)}
+          aria-label="Last page"
+        >
+          <ChevronsRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Assign dropdown (portal)                                            */
+/* ------------------------------------------------------------------ */
+
 function AssignDropdown({ annotators, assignedTo, onAssign }) {
   const [open, setOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState(null);
@@ -821,11 +1143,11 @@ function AssignDropdown({ annotators, assignedTo, onAssign }) {
     <>
       <button
         ref={btnRef}
-        className="btn btn-sm btn-outline gap-2 w-full sm:w-auto"
+        className="btn btn-ghost btn-xs gap-1 normal-case shrink-0"
         onClick={toggle}
       >
-        <UserPlus className="w-4 h-4" />
-        Assign Dataset
+        <UserPlus className="w-3 h-3" />
+        {assignedTo ? "Reassign" : "Assign"}
       </button>
 
       {open &&
@@ -892,406 +1214,101 @@ function AssignDropdown({ annotators, assignedTo, onAssign }) {
   );
 }
 
-/* ---------------------------------------------------------------- */
-/* Desktop table row                                                */
-/* ---------------------------------------------------------------- */
-function CommentRow({
-  comment,
-  isAdmin,
-  row,
-  setRow,
-  onSave,
-  onDelete,
-  onHistory,
-  selected,
-  onToggleSelect,
-}) {
-  const serverSentiment = SENTIMENTS.includes(comment.sentiment)
-    ? comment.sentiment
-    : "";
-  const serverType = TYPES.includes(comment.type) ? comment.type : "";
-  const dirty = row.sentiment !== serverSentiment || row.type !== serverType;
-  const canSave = dirty && !!row.sentiment && !!row.type;
+/* ------------------------------------------------------------------ */
+/* Skeleton                                                            */
+/* ------------------------------------------------------------------ */
 
+function DatasetDetailSkeleton() {
   return (
-    <tr className={dirty ? "bg-warning/5" : ""}>
-      <td>
-        <button
-          type="button"
-          className="btn btn-ghost btn-xs btn-square"
-          onClick={() => onToggleSelect(comment._id)}
-          aria-label={selected ? "Deselect" : "Select"}
-        >
-          {selected ? (
-            <CheckSquare className="w-4 h-4 text-primary" />
-          ) : (
-            <Square className="w-4 h-4 text-base-content/40" />
-          )}
-        </button>
-      </td>
-      <td className="text-xs font-mono text-base-content/60">
-        {comment.sourceId}
-      </td>
-      <td className="max-w-md">
-        <span className="line-clamp-2 text-sm">{comment.commentText}</span>
-      </td>
-      <td>
-        <select
-          className={`select select-bordered select-xs w-full max-w-32 ${
-            dirty && !row.sentiment ? "select-warning" : ""
-          }`}
-          value={row.sentiment}
-          onChange={(e) => setRow(comment._id, { sentiment: e.target.value })}
-        >
-          <option value="">—</option>
-          {SENTIMENTS.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-      </td>
-      <td>
-        <select
-          className={`select select-bordered select-xs w-full max-w-28 ${
-            dirty && !row.type ? "select-warning" : ""
-          }`}
-          value={row.type}
-          onChange={(e) => setRow(comment._id, { type: e.target.value })}
-        >
-          <option value="">—</option>
-          {TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
-      </td>
-      <td>
-        <StatusBadge status={comment.status} />
-      </td>
-      <td className="text-right whitespace-nowrap">
-        <button
-          className="btn btn-xs btn-primary gap-1"
-          onClick={() => onSave(comment)}
-          disabled={!canSave}
-        >
-          <Save className="w-3.5 h-3.5" />
-          Save
-        </button>
-
-        {isAdmin && (
-          <>
-            <button
-              className="btn btn-xs btn-ghost ml-1 gap-1"
-              onClick={() => onHistory(comment._id)}
-              title="Version history"
-            >
-              <History className="w-3.5 h-3.5" />
-              History
-            </button>
-            <button
-              className="btn btn-xs btn-ghost text-error ml-1 gap-1"
-              onClick={() => onDelete(comment._id)}
-              title="Delete comment"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              Del
-            </button>
-          </>
-        )}
-      </td>
-    </tr>
-  );
-}
-
-/* ---------------------------------------------------------------- */
-/* Mobile comment card                                              */
-/* ---------------------------------------------------------------- */
-function CommentCard({
-  comment,
-  isAdmin,
-  row,
-  setRow,
-  onSave,
-  onDelete,
-  onHistory,
-  selected,
-  onToggleSelect,
-}) {
-  const serverSentiment = SENTIMENTS.includes(comment.sentiment)
-    ? comment.sentiment
-    : "";
-  const serverType = TYPES.includes(comment.type) ? comment.type : "";
-  const dirty = row.sentiment !== serverSentiment || row.type !== serverType;
-  const canSave = dirty && !!row.sentiment && !!row.type;
-
-  return (
-    <div
-      className={`p-4 ${dirty ? "bg-warning/5" : ""} ${
-        selected ? "bg-primary/5" : ""
-      }`}
-    >
-      <div className="flex items-start justify-between gap-3 mb-2">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="btn btn-ghost btn-xs btn-square -ml-1"
-            onClick={() => onToggleSelect(comment._id)}
-            aria-label={selected ? "Deselect" : "Select"}
-          >
-            {selected ? (
-              <CheckSquare className="w-4 h-4 text-primary" />
-            ) : (
-              <Square className="w-4 h-4 text-base-content/40" />
-            )}
-          </button>
-          <span className="text-xs font-mono text-base-content/50">
-            {comment.sourceId}
-          </span>
-        </div>
-        <StatusBadge status={comment.status} />
+    <div className="pb-24">
+      <div className="mb-4 space-y-2">
+        <div className="skeleton h-3 w-32" />
+        <div className="skeleton h-6 w-64" />
+        <div className="skeleton h-3 w-48" />
       </div>
 
-      <p className="text-sm mb-3 leading-relaxed">{comment.commentText}</p>
-
-      <div className="grid grid-cols-2 gap-2 mb-3">
-        <div>
-          <label className="text-xs text-base-content/50 block mb-1">
-            Sentiment
-          </label>
-          <select
-            className={`select select-bordered select-sm w-full ${
-              dirty && !row.sentiment ? "select-warning" : ""
-            }`}
-            value={row.sentiment}
-            onChange={(e) => setRow(comment._id, { sentiment: e.target.value })}
-          >
-            <option value="">—</option>
-            {SENTIMENTS.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
+      <div className="sticky top-16 z-20 -mx-3 px-3 pb-2 bg-base-200/80 backdrop-blur">
+        <div className="card bg-base-100 border border-base-200 shadow-sm">
+          <div className="px-4 py-2.5 flex items-center gap-3">
+            <div className="skeleton h-7 w-14" />
+            <div className="flex-1 space-y-1.5">
+              <div className="skeleton h-1.5 w-full rounded-full" />
+              <div className="skeleton h-3 w-40" />
+            </div>
+            <div className="skeleton h-5 w-20 rounded-full" />
+          </div>
         </div>
-        <div>
-          <label className="text-xs text-base-content/50 block mb-1">
-            Type
-          </label>
-          <select
-            className={`select select-bordered select-sm w-full ${
-              dirty && !row.type ? "select-warning" : ""
-            }`}
-            value={row.type}
-            onChange={(e) => setRow(comment._id, { type: e.target.value })}
-          >
-            <option value="">—</option>
-            {TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
+        <div className="card bg-base-100 border border-base-200 shadow-sm mt-1.5">
+          <div className="px-3 py-2 flex flex-wrap gap-2">
+            <div className="skeleton h-6 w-16 rounded-full" />
+            <div className="skeleton h-6 w-14 rounded-full" />
+            <div className="skeleton h-6 w-20 rounded-full" />
+            <div className="skeleton h-6 w-14 rounded-full" />
+            <div className="skeleton h-6 w-48 ml-auto" />
+          </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-1 flex-wrap">
-        <button
-          className="btn btn-xs btn-primary gap-1 flex-1 sm:flex-none"
-          onClick={() => onSave(comment)}
-          disabled={!canSave}
-        >
-          <Save className="w-3.5 h-3.5" />
-          Save
-        </button>
-
-        {isAdmin && (
-          <>
-            <button
-              className="btn btn-xs btn-ghost gap-1"
-              onClick={() => onHistory(comment._id)}
-            >
-              <History className="w-3.5 h-3.5" />
-              History
-            </button>
-            <button
-              className="btn btn-xs btn-ghost text-error gap-1"
-              onClick={() => onDelete(comment._id)}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              Delete
-            </button>
-          </>
-        )}
+      <div className="card bg-base-100 border border-base-200 shadow-sm mt-2">
+        <CommentsTableSkeleton rows={8} />
       </div>
     </div>
   );
 }
 
-/* ---------------------------------------------------------------- */
-/* Status badge                                                     */
-/* ---------------------------------------------------------------- */
-function StatusBadge({ status }) {
-  const map = {
-    pending: "badge-warning",
-    processing: "badge-info",
-    in_progress: "badge-info",
-    completed: "badge-success",
-    failed: "badge-error",
-    annotated: "badge-success",
-  };
-
+function CommentsTableSkeleton({ rows = 8 }) {
   return (
-    <span className={`badge ${map[status] || "badge-ghost"} badge-sm`}>
-      {statusLabel(status)}
-    </span>
-  );
-}
-
-/* ---------------------------------------------------------------- */
-/* Skeleton loaders                                                 */
-/* ---------------------------------------------------------------- */
-function DatasetDetailSkeleton({ isAdmin }) {
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-      <div className="mb-6">
-        <div className="skeleton h-3 w-32 mb-2" />
-        <div className="skeleton h-8 w-64 mb-2" />
-        <div className="skeleton h-4 w-48" />
-      </div>
-
-      <div className="card bg-base-100 shadow-sm border border-base-200 mb-4">
-        <div className="card-body p-4 sm:p-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-            <div className="space-y-2">
-              <div className="skeleton h-3 w-24" />
-              <div className="skeleton h-5 w-32" />
-            </div>
-            <div className="space-y-2">
-              <div className="skeleton h-3 w-20" />
-              <div className="skeleton h-5 w-28" />
-            </div>
-            {isAdmin && (
-              <div className="flex sm:justify-end">
-                <div className="skeleton h-8 w-40" />
-              </div>
-            )}
-          </div>
-          <div className="flex justify-between mb-2">
-            <div className="skeleton h-3 w-32" />
-            <div className="skeleton h-3 w-24" />
-          </div>
-          <div className="skeleton h-3 w-full rounded-full" />
-        </div>
-      </div>
-
-      <div className="card bg-base-100 shadow-sm border border-base-200 mb-4">
-        <div className="card-body p-4">
-          <div className="flex flex-wrap gap-3">
-            <div className="skeleton h-8 w-32" />
-            <div className="skeleton h-4 w-28" />
-            <div className="skeleton h-8 w-64 ml-auto" />
-          </div>
-        </div>
-      </div>
-
-      <div className="card bg-base-100 shadow-sm border border-base-200">
-        <div className="card-body p-0 sm:p-2">
-          <CommentsTableSkeleton rows={6} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CommentsTableSkeleton({ rows = 6 }) {
-  const skeletonRows = Array.from({ length: rows });
-
-  return (
-    <div className="p-4">
-      <div className="hidden lg:block">
-        <table className="table table-zebra table-sm">
-          <thead>
-            <tr>
-              <th className="w-10" />
-              <th>ID</th>
-              <th>Comment</th>
-              <th>Sentiment</th>
-              <th>Type</th>
-              <th>Status</th>
-              <th className="text-right">Actions</th>
+    <div className="overflow-hidden">
+      <table className="table table-xs">
+        <thead className="bg-base-200/50 text-[10px] uppercase tracking-wider text-base-content/50">
+          <tr>
+            <th className="w-8 px-2!"></th>
+            <th className="w-20">ID</th>
+            <th>Comment</th>
+            <th className="w-32">Sentiment</th>
+            <th className="w-32">Type</th>
+            <th className="w-24">Status</th>
+            <th className="w-28"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: rows }).map((_, i) => (
+            <tr key={i}>
+              <td className="px-2!">
+                <div className="skeleton w-3.5 h-3.5 rounded" />
+              </td>
+              <td>
+                <div className="skeleton h-3 w-14" />
+              </td>
+              <td>
+                <div className="skeleton h-3 w-full max-w-md" />
+              </td>
+              <td>
+                <div className="skeleton h-6 w-full rounded-md" />
+              </td>
+              <td>
+                <div className="skeleton h-6 w-full rounded-md" />
+              </td>
+              <td>
+                <div className="skeleton h-4 w-16 rounded-full" />
+              </td>
+              <td className="text-right">
+                <div className="flex justify-end gap-1">
+                  <div className="skeleton h-6 w-14 rounded-md" />
+                </div>
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {skeletonRows.map((_, i) => (
-              <tr key={i}>
-                <td>
-                  <div className="skeleton h-4 w-4 rounded" />
-                </td>
-                <td>
-                  <div className="skeleton h-3 w-12" />
-                </td>
-                <td className="max-w-md">
-                  <div className="skeleton h-3 w-full mb-1" />
-                  <div className="skeleton h-3 w-2/3" />
-                </td>
-                <td>
-                  <div className="skeleton h-6 w-28 rounded-md" />
-                </td>
-                <td>
-                  <div className="skeleton h-6 w-24 rounded-md" />
-                </td>
-                <td>
-                  <div className="skeleton h-5 w-20 rounded-full" />
-                </td>
-                <td className="text-right">
-                  <div className="flex justify-end gap-1">
-                    <div className="skeleton h-6 w-16 rounded-md" />
-                    <div className="skeleton h-6 w-20 rounded-md" />
-                    <div className="skeleton h-6 w-14 rounded-md" />
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="lg:hidden divide-y divide-base-200">
-        {skeletonRows.map((_, i) => (
-          <div key={i} className="py-4">
-            <div className="flex justify-between gap-3 mb-2">
-              <div className="skeleton h-3 w-16" />
-              <div className="skeleton h-5 w-20 rounded-full" />
-            </div>
-            <div className="skeleton h-3 w-full mb-1" />
-            <div className="skeleton h-3 w-3/4 mb-3" />
-            <div className="grid grid-cols-2 gap-2 mb-3">
-              <div className="skeleton h-8 w-full" />
-              <div className="skeleton h-8 w-full" />
-            </div>
-            <div className="flex gap-1">
-              <div className="skeleton h-6 w-16 rounded-md" />
-              <div className="skeleton h-6 w-20 rounded-md" />
-              <div className="skeleton h-6 w-14 rounded-md" />
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="flex flex-col sm:flex-row justify-between gap-3 mt-4 pt-4 border-t border-base-200">
-        <div className="skeleton h-6 w-32" />
-        <div className="skeleton h-3 w-24 mx-auto" />
-        <div className="skeleton h-8 w-24 rounded-md" />
-      </div>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-/* ---------------------------------------------------------------- */
-/* Version history modal (paginated)                                */
-/* ---------------------------------------------------------------- */
+/* ------------------------------------------------------------------ */
+/* Version history modal (unchanged)                                   */
+/* ------------------------------------------------------------------ */
+
 function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
   const queryClient = useQueryClient();
   const [restoringVersion, setRestoringVersion] = useState(null);
@@ -1484,7 +1501,6 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
             </ul>
           )}
 
-          {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between gap-3 mt-4 pt-4 border-t border-base-200">
               <span className="text-xs text-base-content/60">
