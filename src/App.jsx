@@ -15,6 +15,7 @@ import AuditPage from "./pages/AuditPage";
 import TaxonomiesPage from "./pages/TaxonomiesPage";
 
 import PublicLayout from "./layouts/PublicLayout";
+import AnalyticsPage from "./pages/AnalyticsPage";
 
 export default function App() {
   return (
@@ -59,6 +60,16 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+
+        <Route
+          path="/analytics"
+          element={
+            <ProtectedRoute adminOnly>
+              <AnalyticsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/datasets/:id/analytics" element={<AnalyticsPage />} />
       </Route>
 
       <Route path="*" element={<NotFoundPage />} />

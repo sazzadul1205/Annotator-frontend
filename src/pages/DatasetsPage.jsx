@@ -29,6 +29,7 @@ import {
   ChevronsRight,
   Tags,
   Check,
+  BarChart3,
 } from "lucide-react";
 
 import {
@@ -1425,7 +1426,6 @@ function DatasetActions({
 
         <div className="divider my-1"></div>
 
-        {/* ---- Other actions ---- */}
         <button
           onClick={() => {
             closeMenu();
@@ -1436,6 +1436,15 @@ function DatasetActions({
           <Pencil className="w-3.5 h-3.5" />
           Rename
         </button>
+
+        <Link
+          to={`/datasets/${ds._id}/analytics`}
+          onClick={closeMenu}
+          className="flex items-center gap-2 w-full px-3 py-2 rounded text-left text-sm hover:bg-base-200"
+        >
+          <BarChart3 className="w-3.5 h-3.5" />
+          Analytics
+        </Link>
 
         <button
           disabled={ds.status !== "completed"}
@@ -1479,6 +1488,15 @@ function DatasetActions({
       >
         <Eye className="w-3.5 h-3.5" />
         View
+      </Link>
+
+      <Link
+        to={`/datasets/${ds._id}/analytics`}
+        className="btn btn-xs btn-ghost gap-1 normal-case text-base-content/70"
+        title="View analytics"
+      >
+        <BarChart3 className="w-3.5 h-3.5" />
+        Analytics
       </Link>
 
       <button

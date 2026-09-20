@@ -26,6 +26,7 @@ import {
   User,
   Tags as TagsIcon,
   ListChecks,
+  BarChart3,
 } from "lucide-react";
 
 import {
@@ -439,6 +440,17 @@ export default function DatasetDetailPage() {
                   {dataset.taxonomyName || "Default labels"}
                 </span>
               )}
+
+              <span className="text-base-content/20">·</span>
+
+              <Link
+                to={`/datasets/${id}/analytics`}
+                className="btn btn-ghost btn-xs gap-1 normal-case text-base-content/70"
+                title="View analytics"
+              >
+                <BarChart3 className="w-3 h-3" />
+                Analytics
+              </Link>
             </div>
           </div>
         </div>

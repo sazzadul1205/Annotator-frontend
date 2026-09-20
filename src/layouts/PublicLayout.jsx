@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   History,
   Tags,
+  BarChart3,
 } from "lucide-react";
 import { useAuth } from "../context/useAuth";
 
@@ -115,6 +116,11 @@ export default function PublicLayout() {
                 <NavLink to="/taxonomies" className={linkClass}>
                   <Tags className="w-4 h-4" />
                   Taxonomies
+                  <ChevronRight className="w-3.5 h-3.5 ml-auto opacity-0 -translate-x-1 group-hover:opacity-60 group-hover:translate-x-0 transition-all" />
+                </NavLink>
+                <NavLink to="/analytics" className={linkClass}>
+                  <BarChart3 className="w-4 h-4" />
+                  Analytics
                   <ChevronRight className="w-3.5 h-3.5 ml-auto opacity-0 -translate-x-1 group-hover:opacity-60 group-hover:translate-x-0 transition-all" />
                 </NavLink>
               </>
