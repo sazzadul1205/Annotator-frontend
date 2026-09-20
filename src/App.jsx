@@ -7,26 +7,21 @@ import BootstrapPage from "./pages/auth/BootstrapPage";
 import ServiceUnavailablePage from "./pages/ServiceUnavailablePage";
 import NotFoundPage from "./pages/NotFoundPage";
 
+import DashboardPage from "./pages/DashboardPage";
 import DatasetsPage from "./pages/DatasetsPage";
 import DatasetDetailPage from "./pages/DatasetDetailPage";
 import UsersPage from "./pages/UsersPage";
+import AuditPage from "./pages/AuditPage";
 
 import PublicLayout from "./layouts/PublicLayout";
 
 export default function App() {
   return (
     <Routes>
-      {/* Public */}
       <Route path="/login" element={<LoginPage />} />
       <Route path="/bootstrap" element={<BootstrapPage />} />
+      <Route path="/service-unavailable" element={<ServiceUnavailablePage />} />
 
-      {/* Service Unavailable — reachable even when the backend is down */}
-      <Route
-        path="/service-unavailable"
-        element={<ServiceUnavailablePage />}
-      />
-
-      {/* Protected */}
       <Route
         element={
           <ProtectedRoute>
@@ -34,10 +29,19 @@ export default function App() {
           </ProtectedRoute>
         }
       >
-        {/* Landing goes straight to datasets */}
-        <Route path="/" element={<Navigate to="/datasets" replace />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/datasets" element={<DatasetsPage />} />
         <Route path="/datasets/:id" element={<DatasetDetailPage />} />
+
+        <Route
+          path="/audit"
+          element={
+            <ProtectedRoute adminOnly>
+              <AuditPage />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/users"
           element={
@@ -48,7 +52,6 @@ export default function App() {
         />
       </Route>
 
-      {/* 404 */}
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
