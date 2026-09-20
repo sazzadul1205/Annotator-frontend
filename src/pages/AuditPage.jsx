@@ -3,7 +3,6 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   History,
-  Search,
   ChevronLeft,
   ChevronRight,
   User as UserIcon,
@@ -13,6 +12,7 @@ import {
   ShieldCheck,
   LogIn,
   LogOut,
+  Tags,
 } from "lucide-react";
 import { listAuditEntries, listAuditActions } from "../services/auditApi";
 
@@ -36,6 +36,14 @@ const ACTION_ICONS = {
   "comment.bulk_annotate": MessageSquare,
   "comment.bulk_assign": MessageSquare,
   "comment.bulk_unassign": MessageSquare,
+
+  // Taxonomy
+  "taxonomy.create": Tags,
+  "taxonomy.update": Tags,
+  "taxonomy.delete": Tags,
+  "taxonomy.deactivate": Tags,
+  "taxonomy.assign_to_dataset": Tags,
+  "taxonomy.unassign_from_dataset": Tags,
 };
 
 const ACTION_COLORS = {
@@ -58,6 +66,14 @@ const ACTION_COLORS = {
   "comment.bulk_annotate": "text-primary",
   "comment.bulk_assign": "text-primary",
   "comment.bulk_unassign": "text-warning",
+
+  // Taxonomy
+  "taxonomy.create": "text-success",
+  "taxonomy.update": "text-warning",
+  "taxonomy.delete": "text-error",
+  "taxonomy.deactivate": "text-warning",
+  "taxonomy.assign_to_dataset": "text-primary",
+  "taxonomy.unassign_from_dataset": "text-warning",
 };
 
 export default function AuditPage() {
@@ -138,6 +154,7 @@ export default function AuditPage() {
               <option value="user">Users</option>
               <option value="dataset">Datasets</option>
               <option value="comment">Comments</option>
+              <option value="taxonomy">Taxonomies</option>
             </select>
 
             {(action || targetType) && (

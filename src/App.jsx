@@ -12,6 +12,7 @@ import DatasetsPage from "./pages/DatasetsPage";
 import DatasetDetailPage from "./pages/DatasetDetailPage";
 import UsersPage from "./pages/UsersPage";
 import AuditPage from "./pages/AuditPage";
+import TaxonomiesPage from "./pages/TaxonomiesPage";
 
 import PublicLayout from "./layouts/PublicLayout";
 
@@ -47,6 +48,14 @@ export default function App() {
           element={
             <ProtectedRoute adminOnly>
               <UsersPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/taxonomies"
+          element={
+            <ProtectedRoute adminOnly>
+              <TaxonomiesPage />
             </ProtectedRoute>
           }
         />

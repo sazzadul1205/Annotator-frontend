@@ -27,6 +27,8 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  Tags,
+  Check,
 } from "lucide-react";
 
 import {
@@ -40,6 +42,11 @@ import {
 } from "../services/datasetApi";
 import { listUsers } from "../services/userApi";
 import { exportComments } from "../services/commentApi";
+import {
+  listTaxonomies,
+  assignTaxonomyToDataset,
+  unassignTaxonomyFromDataset,
+} from "../services/taxonomyApi";
 
 import ImportPreviewModal from "../components/ImportPreviewModal";
 
@@ -159,7 +166,6 @@ function ProcessingProgress({ progress, eta }) {
           max="100"
         />
       ) : (
-        // Indeterminate: no `value` attribute gives the animated bar
         <progress className="progress progress-info w-full h-1.5" />
       )}
     </div>
@@ -179,6 +185,7 @@ export default function DatasetsPage() {
   const [deletingId, setDeletingId] = useState(null);
   const [exportingId, setExportingId] = useState(null);
   const [assigningId, setAssigningId] = useState(null);
+  const [assigningTaxonomyId, setAssigningTaxonomyId] = useState(null);
   const [renameTarget, setRenameTarget] = useState(null);
   const [duplicatingId, setDuplicatingId] = useState(null);
   const [previewFile, setPreviewFile] = useState(null);
@@ -189,7 +196,6 @@ export default function DatasetsPage() {
   const [pageSize, setPageSize] = useState(10);
 
   const listTopRef = useRef(null);
-  // Stores the previous progress sample per upload for ETA calculation
   const uploadRefs = useRef({});
 
   const activeUploadCount = uploads.filter(
@@ -219,6 +225,19 @@ export default function DatasetsPage() {
     queryFn: listUsers,
     enabled: isAdmin,
   });
+
+  // Active taxonomies for the "Assign labels" submenu — only fetched for admins
+  const { data: taxonomiesData } = useQuery({
+    queryKey: ["taxonomies", { isActive: true }],
+    queryFn: () => listTaxonomies({ isActive: true }),
+    enabled: isAdmin,
+    staleTime: 60 * 1000,
+  });
+
+  const taxonomies = useMemo(
+    () => taxonomiesData?.taxonomies || [],
+    [taxonomiesData],
+  );
 
   const annotators = useMemo(
     () =>
@@ -316,7 +335,6 @@ export default function DatasetsPage() {
       const kept = prev.filter(
         (u) => u.status !== "completed" && u.status !== "failed",
       );
-      // Clean up refs for removed uploads
       const keptIds = new Set(kept.map((u) => u.id));
       for (const id of Object.keys(uploadRefs.current)) {
         if (!keptIds.has(id)) delete uploadRefs.current[id];
@@ -326,7 +344,7 @@ export default function DatasetsPage() {
   };
 
   const pollDataset = async (datasetId, uploadId) => {
-    const maxAttempts = 400; // ~10 min at 1s interval
+    const maxAttempts = 400;
 
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise((r) => setTimeout(r, 1000));
@@ -361,7 +379,6 @@ export default function DatasetsPage() {
           return;
         }
 
-        // -------- Still processing: extract progress + compute ETA --------
         const now = Date.now();
         const prev = uploadRefs.current[uploadId] || null;
 
@@ -374,7 +391,7 @@ export default function DatasetsPage() {
             const ratePerMs = deltaProcessed / deltaTime;
             const remaining = p.total - p.processed;
             if (ratePerMs > 0 && remaining > 0) {
-              eta = Math.round(remaining / ratePerMs); // ms
+              eta = Math.round(remaining / ratePerMs);
             }
           }
         }
@@ -392,7 +409,6 @@ export default function DatasetsPage() {
           eta,
         });
 
-        // Remember this sample for the next ETA computation
         uploadRefs.current[uploadId] = {
           processed: p ? p.processed || 0 : 0,
           sampledAt: now,
@@ -412,7 +428,11 @@ export default function DatasetsPage() {
   };
 
   const startUpload = async (file, uploadId, options = {}) => {
-    const { dedupeStrategy = "skip", datasetName = "" } = options;
+    const {
+      dedupeStrategy = "skip",
+      datasetName = "",
+      taxonomyId = null,
+    } = options;
 
     try {
       const res = await importDataset(
@@ -422,6 +442,7 @@ export default function DatasetsPage() {
           updateUpload(uploadId, { uploadPct: pct });
         },
         dedupeStrategy,
+        taxonomyId,
       );
 
       updateUpload(uploadId, {
@@ -450,6 +471,7 @@ export default function DatasetsPage() {
 
     const dedupeStrategy = options.dedupeStrategy || "skip";
     const datasetName = (options.name || "").trim();
+    const taxonomyId = options.taxonomyId || null;
 
     const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const newUpload = {
@@ -471,11 +493,13 @@ export default function DatasetsPage() {
     };
 
     setUploads((prev) => [...prev, newUpload]);
-
-    // Clear any stale sample for this upload id
     delete uploadRefs.current[uploadId];
 
-    startUpload(file, uploadId, { dedupeStrategy, datasetName });
+    startUpload(file, uploadId, {
+      dedupeStrategy,
+      datasetName,
+      taxonomyId,
+    });
   };
 
   /* ---------------------------------------------------------------- */
@@ -518,6 +542,43 @@ export default function DatasetsPage() {
       alertError("Assign failed", err?.response?.data?.error || err.message);
     } finally {
       setAssigningId(null);
+    }
+  };
+
+  /**
+   * Assign or unassign a taxonomy on a dataset from the list page.
+   * `taxonomyId === null` means "switch back to default labels".
+   */
+  const handleAssignTaxonomy = async (ds, taxonomyId) => {
+    const currentId = ds.taxonomyId || null;
+    if (currentId === taxonomyId) return;
+
+    setAssigningTaxonomyId(ds._id);
+    try {
+      if (taxonomyId === null) {
+        if (currentId) {
+          await unassignTaxonomyFromDataset(currentId, ds._id);
+        }
+        toast("Switched to default labels");
+      } else {
+        await assignTaxonomyToDataset(taxonomyId, ds._id);
+        const tax = taxonomies.find((t) => t._id === taxonomyId);
+        toast(`Labels set to "${tax?.name || "taxonomy"}"`);
+      }
+
+      // Refresh the list + the taxonomy resolution for this dataset,
+      // in case the user then opens its detail page.
+      queryClient.invalidateQueries({ queryKey: ["datasets"] });
+      queryClient.invalidateQueries({
+        queryKey: ["taxonomy-for-dataset", ds._id],
+      });
+    } catch (err) {
+      alertError(
+        "Update failed",
+        err?.response?.data?.error || err.message || "Unknown error",
+      );
+    } finally {
+      setAssigningTaxonomyId(null);
     }
   };
 
@@ -687,19 +748,23 @@ export default function DatasetsPage() {
               ds={ds}
               isAdmin={isAdmin}
               annotators={annotators}
+              taxonomies={taxonomies}
               annotatorName={annotatorName}
               isDeleting={deletingId === ds._id}
               isDuplicating={duplicatingId === ds._id}
               isExporting={exportingId === ds._id}
               isAssigning={assigningId === ds._id}
+              isAssigningTaxonomy={assigningTaxonomyId === ds._id}
               anyBusy={
                 deletingId === ds._id ||
                 duplicatingId === ds._id ||
                 exportingId === ds._id ||
-                assigningId === ds._id
+                assigningId === ds._id ||
+                assigningTaxonomyId === ds._id
               }
               onExport={handleExport}
               onAssign={handleAssign}
+              onAssignTaxonomy={handleAssignTaxonomy}
               onRename={setRenameTarget}
               onDuplicate={handleDuplicate}
               onDelete={handleDelete}
@@ -908,14 +973,17 @@ function DatasetCard({
   ds,
   isAdmin,
   annotators,
+  taxonomies,
   annotatorName,
   isDeleting,
   isDuplicating,
   isExporting,
   isAssigning,
+  isAssigningTaxonomy,
   anyBusy,
   onExport,
   onAssign,
+  onAssignTaxonomy,
   onRename,
   onDuplicate,
   onDelete,
@@ -947,9 +1015,22 @@ function DatasetCard({
                     <span className="badge badge-ghost badge-xs">copy</span>
                   )}
                 </div>
-                <p className="text-xs text-base-content/50 truncate mt-0.5">
-                  {ds.originalFileName}
-                </p>
+                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                  <p className="text-xs text-base-content/50 truncate">
+                    {ds.originalFileName}
+                  </p>
+                  <span className="text-base-content/20">·</span>
+                  <span
+                    className={`inline-flex items-center gap-1 text-[11px] ${
+                      ds.taxonomyName
+                        ? "text-base-content/70"
+                        : "text-base-content/40 italic"
+                    }`}
+                  >
+                    <Tags className="w-3 h-3" />
+                    {ds.taxonomyName || "Default labels"}
+                  </span>
+                </div>
               </div>
 
               <StatusChip status={status} />
@@ -1064,13 +1145,16 @@ function DatasetCard({
             ds={ds}
             isAdmin={isAdmin}
             annotators={annotators}
+            taxonomies={taxonomies}
             isDeleting={isDeleting}
             isDuplicating={isDuplicating}
             isExporting={isExporting}
             isAssigning={isAssigning}
+            isAssigningTaxonomy={isAssigningTaxonomy}
             anyBusy={anyBusy}
             onExport={onExport}
             onAssign={onAssign}
+            onAssignTaxonomy={onAssignTaxonomy}
             onRename={onRename}
             onDuplicate={onDuplicate}
             onDelete={onDelete}
@@ -1089,12 +1173,15 @@ function DatasetActions({
   ds,
   isAdmin,
   annotators,
+  taxonomies,
   isDeleting,
   isDuplicating,
   isExporting,
+  isAssigningTaxonomy,
   anyBusy,
   onExport,
   onAssign,
+  onAssignTaxonomy,
   onRename,
   onDuplicate,
   onDelete,
@@ -1137,8 +1224,9 @@ function DatasetActions({
   const openWith = (menuName) => {
     const btnEl =
       menuName === "export" ? exportBtnRef.current : actionsBtnRef.current;
-    const menuWidth = menuName === "export" ? 144 : 224;
-    const menuHeight = menuName === "export" ? 100 : 340;
+    const menuWidth = menuName === "export" ? 144 : 288;
+    // Slightly taller to fit the new "Assign labels" section
+    const menuHeight = menuName === "export" ? 100 : 520;
     setMenuStyle(computeMenuStyle(btnEl, menuWidth, menuHeight));
     setOpenMenu(menuName);
   };
@@ -1190,6 +1278,8 @@ function DatasetActions({
   const isExportOpen = openMenu === "export";
   const isActionsOpen = openMenu === "actions";
 
+  const currentTaxonomyId = ds.taxonomyId || null;
+
   const exportMenu =
     isExportOpen &&
     menuStyle &&
@@ -1234,8 +1324,9 @@ function DatasetActions({
         style={menuStyle}
         className="menu bg-base-100 rounded-box p-2 shadow-lg border border-base-200"
       >
+        {/* ---- Assign annotator ---- */}
         <div className="menu-title text-xs px-3 pt-1">Assign to</div>
-        <div className="max-h-52 overflow-y-auto">
+        <div className="max-h-40 overflow-y-auto">
           {annotators.length === 0 && (
             <div className="px-3 py-2 text-sm opacity-50">No annotators</div>
           )}
@@ -1282,6 +1373,59 @@ function DatasetActions({
 
         <div className="divider my-1"></div>
 
+        {/* ---- Assign taxonomy ---- */}
+        <div className="menu-title text-xs px-3 pt-1 flex items-center gap-1.5">
+          <Tags className="w-3 h-3" />
+          Labels
+        </div>
+        <div className="max-h-40 overflow-y-auto">
+          <button
+            onClick={() => {
+              closeMenu();
+              onAssignTaxonomy(ds, null);
+            }}
+            disabled={!currentTaxonomyId || isAssigningTaxonomy}
+            className={`flex items-center justify-between gap-2 w-full px-3 py-2 rounded text-left text-sm italic ${
+              !currentTaxonomyId
+                ? "bg-primary/10 text-primary"
+                : "hover:bg-base-200"
+            } disabled:opacity-50`}
+          >
+            <span className="truncate">Default labels</span>
+            {!currentTaxonomyId && <Check className="w-3.5 h-3.5 shrink-0" />}
+          </button>
+
+          {taxonomies.length === 0 && (
+            <div className="px-3 py-2 text-xs text-base-content/50">
+              No custom taxonomies yet
+            </div>
+          )}
+
+          {taxonomies.map((t) => {
+            const isCurrent = currentTaxonomyId === t._id;
+            return (
+              <button
+                key={t._id}
+                disabled={isCurrent || isAssigningTaxonomy}
+                onClick={() => {
+                  closeMenu();
+                  onAssignTaxonomy(ds, t._id);
+                }}
+                className={`flex items-center justify-between gap-2 w-full px-3 py-2 rounded text-left text-sm ${
+                  isCurrent ? "bg-primary/10 text-primary" : "hover:bg-base-200"
+                }`}
+                title={t.description || t.name}
+              >
+                <span className="truncate">{t.name}</span>
+                {isCurrent && <Check className="w-3.5 h-3.5 shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="divider my-1"></div>
+
+        {/* ---- Other actions ---- */}
         <button
           onClick={() => {
             closeMenu();
@@ -1540,7 +1684,6 @@ function ImportModal({
                     key={u.id}
                     className="border border-base-200 rounded-lg p-3 bg-base-100"
                   >
-                    {/* Row 1: icon + name + status text */}
                     <div className="flex items-center justify-between gap-2 mb-2">
                       <div className="flex items-center gap-2 min-w-0">
                         {u.status === "completed" && (
@@ -1597,7 +1740,6 @@ function ImportModal({
                       </div>
                     </div>
 
-                    {/* Row 2: progress bar */}
                     {u.status === "uploading" && (
                       <progress
                         className="progress progress-primary w-full h-1.5"

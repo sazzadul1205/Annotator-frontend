@@ -8,6 +8,7 @@ import {
   ChevronRight,
   LayoutDashboard,
   History,
+  Tags,
 } from "lucide-react";
 import { useAuth } from "../context/useAuth";
 
@@ -109,6 +110,11 @@ export default function PublicLayout() {
                 <NavLink to="/audit" className={linkClass}>
                   <History className="w-4 h-4" />
                   Audit Log
+                  <ChevronRight className="w-3.5 h-3.5 ml-auto opacity-0 -translate-x-1 group-hover:opacity-60 group-hover:translate-x-0 transition-all" />
+                </NavLink>
+                <NavLink to="/taxonomies" className={linkClass}>
+                  <Tags className="w-4 h-4" />
+                  Taxonomies
                   <ChevronRight className="w-3.5 h-3.5 ml-auto opacity-0 -translate-x-1 group-hover:opacity-60 group-hover:translate-x-0 transition-all" />
                 </NavLink>
               </>

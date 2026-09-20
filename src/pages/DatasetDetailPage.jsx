@@ -24,6 +24,8 @@ import {
   Square,
   Clock,
   User,
+  Tags as TagsIcon,
+  ListChecks,
 } from "lucide-react";
 
 import {
@@ -36,14 +38,18 @@ import {
 } from "../services/commentApi";
 import { listUsers } from "../services/userApi";
 import { getDataset, assignDataset } from "../services/datasetApi";
+import {
+  listTaxonomies,
+  assignTaxonomyToDataset,
+  unassignTaxonomyFromDataset,
+} from "../services/taxonomyApi";
 
 import { useAuth } from "../context/useAuth";
+import { useDatasetTaxonomy } from "../hooks/useDatasetTaxonomy";
 import { toast, alertError, confirmAction, confirmDelete } from "../lib/swal";
 import { getDatasetDisplayStatus } from "../lib/datasetStatus";
 
 const PAGE_SIZES = [5, 10, 20, 25, 50, 100, 200];
-const SENTIMENTS = ["positive", "negative", "neutral"];
-const TYPES = ["bangla", "english", "banglish"];
 
 // Shared frozen-in-practice empty selection, reused when the active filter
 // signature changed (members are never mutated in place).
@@ -111,6 +117,9 @@ export default function DatasetDetailPage() {
 
   const displayStatus = getDatasetDisplayStatus(dataset, summary);
 
+  // Effective taxonomy (sentiment/type options) for this dataset
+  const taxonomy = useDatasetTaxonomy(id);
+
   const { data: usersData } = useQuery({
     queryKey: ["users"],
     queryFn: listUsers,
@@ -159,11 +168,13 @@ export default function DatasetDetailPage() {
 
   const resolveRow = (c) => {
     const local = rows[c._id] || {};
+    const sentimentValues = taxonomy.values.sentiment;
+    const typeValues = taxonomy.values.type;
     return {
       sentiment:
         local.sentiment ??
-        (SENTIMENTS.includes(c.sentiment) ? c.sentiment : ""),
-      type: local.type ?? (TYPES.includes(c.type) ? c.type : ""),
+        (sentimentValues.includes(c.sentiment) ? c.sentiment : ""),
+      type: local.type ?? (typeValues.includes(c.type) ? c.type : ""),
     };
   };
 
@@ -185,10 +196,14 @@ export default function DatasetDetailPage() {
       return;
     }
 
-    const serverSentiment = SENTIMENTS.includes(comment.sentiment)
+    const serverSentiment = taxonomy.values.sentiment.includes(
+      comment.sentiment,
+    )
       ? comment.sentiment
       : "";
-    const serverType = TYPES.includes(comment.type) ? comment.type : "";
+    const serverType = taxonomy.values.type.includes(comment.type)
+      ? comment.type
+      : "";
 
     if (row.sentiment === serverSentiment && row.type === serverType) {
       return;
@@ -401,6 +416,29 @@ export default function DatasetDetailPage() {
                   onAssign={handleAssign}
                 />
               )}
+
+              <span className="text-base-content/20">·</span>
+
+              {isAdmin ? (
+                <DatasetTaxonomyPicker
+                  datasetId={id}
+                  currentTaxonomyId={dataset.taxonomyId || null}
+                  currentTaxonomyName={dataset.taxonomyName || null}
+                  onChanged={() => {
+                    queryClient.invalidateQueries({
+                      queryKey: ["dataset", id],
+                    });
+                    queryClient.invalidateQueries({
+                      queryKey: ["taxonomy-for-dataset", id],
+                    });
+                  }}
+                />
+              ) : (
+                <span className="inline-flex items-center gap-1 text-xs text-base-content/60">
+                  <TagsIcon className="w-3 h-3" />
+                  {dataset.taxonomyName || "Default labels"}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -607,6 +645,8 @@ export default function DatasetDetailPage() {
                       onHistory={setHistoryCommentId}
                       selected={selectedIds.has(c._id)}
                       onToggleSelect={toggleSelected}
+                      sentimentOptions={taxonomy.sentiment}
+                      typeOptions={taxonomy.type}
                     />
                   ))}
                 </tbody>
@@ -655,13 +695,13 @@ export default function DatasetDetailPage() {
                 className="select select-bordered select-xs flex-1 min-w-0"
                 value={bulkSentiment}
                 onChange={(e) => setBulkSentiment(e.target.value)}
-                disabled={bulkBusy}
+                disabled={bulkBusy || taxonomy.isLoading}
                 aria-label="Sentiment to apply"
               >
                 <option value="">Sentiment…</option>
-                {SENTIMENTS.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
+                {taxonomy.sentiment.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
                   </option>
                 ))}
               </select>
@@ -670,13 +710,13 @@ export default function DatasetDetailPage() {
                 className="select select-bordered select-xs flex-1 min-w-0"
                 value={bulkType}
                 onChange={(e) => setBulkType(e.target.value)}
-                disabled={bulkBusy}
+                disabled={bulkBusy || taxonomy.isLoading}
                 aria-label="Type to apply"
               >
                 <option value="">Type…</option>
-                {TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
+                {taxonomy.type.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
                   </option>
                 ))}
               </select>
@@ -770,11 +810,16 @@ function CommentTableRow({
   onHistory,
   selected,
   onToggleSelect,
+  sentimentOptions,
+  typeOptions,
 }) {
-  const serverSentiment = SENTIMENTS.includes(comment.sentiment)
+  const sentimentValues = sentimentOptions.map((s) => s.value);
+  const typeValues = typeOptions.map((t) => t.value);
+
+  const serverSentiment = sentimentValues.includes(comment.sentiment)
     ? comment.sentiment
     : "";
-  const serverType = TYPES.includes(comment.type) ? comment.type : "";
+  const serverType = typeValues.includes(comment.type) ? comment.type : "";
   const dirty = row.sentiment !== serverSentiment || row.type !== serverType;
   const canSave = dirty && !!row.sentiment && !!row.type;
   const isDone = comment.status === "annotated";
@@ -843,9 +888,9 @@ function CommentTableRow({
           aria-label="Sentiment"
         >
           <option value="">—</option>
-          {SENTIMENTS.map((s) => (
-            <option key={s} value={s}>
-              {s}
+          {sentimentOptions.map((s) => (
+            <option key={s.value} value={s.value}>
+              {s.label}
             </option>
           ))}
         </select>
@@ -862,9 +907,9 @@ function CommentTableRow({
           aria-label="Type"
         >
           <option value="">—</option>
-          {TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
+          {typeOptions.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
             </option>
           ))}
         </select>
@@ -1215,6 +1260,216 @@ function AssignDropdown({ annotators, assignedTo, onAssign }) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Dataset taxonomy picker (portal)                                    */
+/* ------------------------------------------------------------------ */
+
+function DatasetTaxonomyPicker({
+  datasetId,
+  currentTaxonomyId,
+  currentTaxonomyName,
+  onChanged,
+}) {
+  const [open, setOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const btnRef = useRef(null);
+  const menuRef = useRef(null);
+
+  const { data } = useQuery({
+    queryKey: ["taxonomies"],
+    queryFn: () => listTaxonomies({ isActive: true }),
+    staleTime: 60 * 1000,
+  });
+
+  const taxonomies = data?.taxonomies || [];
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onDown = (e) => {
+      if (menuRef.current?.contains(e.target)) return;
+      if (btnRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const onScrollOrResize = () => setOpen(false);
+
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [open]);
+
+  const toggle = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    const btn = btnRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const menuWidth = 256;
+    const menuHeight = 340;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUp = spaceBelow < menuHeight + 12;
+    const left = Math.max(
+      8,
+      Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8),
+    );
+
+    setMenuStyle(
+      openUp
+        ? {
+            position: "fixed",
+            bottom: window.innerHeight - rect.top + 6,
+            left,
+            width: menuWidth,
+            zIndex: 9999,
+          }
+        : {
+            position: "fixed",
+            top: rect.bottom + 6,
+            left,
+            width: menuWidth,
+            zIndex: 9999,
+          },
+    );
+    setOpen(true);
+  };
+
+  const pick = async (taxonomyId) => {
+    setOpen(false);
+    setBusy(true);
+    try {
+      if (taxonomyId === null) {
+        if (!currentTaxonomyId) {
+          setBusy(false);
+          return;
+        }
+        await unassignTaxonomyFromDataset(currentTaxonomyId, datasetId);
+        toast("Switched to default labels");
+      } else {
+        if (taxonomyId === currentTaxonomyId) {
+          setBusy(false);
+          return;
+        }
+        await assignTaxonomyToDataset(taxonomyId, datasetId);
+        toast("Taxonomy assigned");
+      }
+      onChanged();
+    } catch (err) {
+      alertError(
+        "Update failed",
+        err?.response?.data?.error || err.message || "Unknown error",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const label = currentTaxonomyName || "Default labels";
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        className="btn btn-ghost btn-xs gap-1 normal-case shrink-0 text-base-content/70"
+        onClick={toggle}
+        disabled={busy}
+        title="Assign taxonomy"
+      >
+        {busy ? (
+          <span className="loading loading-spinner loading-xs" />
+        ) : (
+          <TagsIcon className="w-3 h-3" />
+        )}
+        {label}
+      </button>
+
+      {open &&
+        menuStyle &&
+        createPortal(
+          <div
+            ref={menuRef}
+            style={menuStyle}
+            className="menu bg-base-100 rounded-box p-2 shadow-lg border border-base-200"
+          >
+            <div className="menu-title text-xs px-3 pt-1">Assign taxonomy</div>
+
+            <div className="max-h-56 overflow-y-auto">
+              <button
+                onClick={() => pick(null)}
+                className={`flex items-center justify-between gap-2 w-full px-3 py-2 rounded text-left text-sm ${
+                  !currentTaxonomyId
+                    ? "bg-primary/10 text-primary"
+                    : "hover:bg-base-200"
+                }`}
+              >
+                <span className="truncate italic">Default labels</span>
+                {!currentTaxonomyId && (
+                  <span className="badge badge-xs badge-primary shrink-0">
+                    current
+                  </span>
+                )}
+              </button>
+
+              {taxonomies.length === 0 && (
+                <div className="px-3 py-2 text-xs text-base-content/50">
+                  No taxonomies yet
+                </div>
+              )}
+
+              {taxonomies.map((t) => {
+                const isCurrent = currentTaxonomyId === t._id;
+                return (
+                  <button
+                    key={t._id}
+                    onClick={() => pick(t._id)}
+                    className={`flex items-center justify-between gap-2 w-full px-3 py-2 rounded text-left text-sm ${
+                      isCurrent
+                        ? "bg-primary/10 text-primary"
+                        : "hover:bg-base-200"
+                    }`}
+                    title={t.description || t.name}
+                  >
+                    <span className="truncate">{t.name}</span>
+                    {isCurrent && (
+                      <span className="badge badge-xs badge-primary shrink-0">
+                        current
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="divider my-1"></div>
+
+            <Link
+              to="/taxonomies"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2 w-full px-3 py-2 rounded text-left text-sm hover:bg-base-200 text-base-content/70"
+            >
+              <ListChecks className="w-3.5 h-3.5" />
+              Manage taxonomies
+            </Link>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Skeleton                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -1306,7 +1561,7 @@ function CommentsTableSkeleton({ rows = 8 }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Version history modal (unchanged)                                   */
+/* Version history modal                                               */
 /* ------------------------------------------------------------------ */
 
 function HistoryModal({ commentId, datasetId, onClose, onRestored }) {

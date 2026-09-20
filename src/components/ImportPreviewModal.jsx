@@ -3,6 +3,9 @@
 // React
 import { useEffect, useState } from "react";
 
+// React Query
+import { useQuery } from "@tanstack/react-query";
+
 // Icons
 import {
   FileSpreadsheet,
@@ -13,10 +16,12 @@ import {
   Copy,
   SkipForward,
   Type,
+  Tags,
 } from "lucide-react";
 
 // Services
 import { previewImport } from "../services/datasetApi";
+import { listTaxonomies } from "../services/taxonomyApi";
 
 /** "my-file.csv" → "my-file" */
 function stripExtension(filename) {
@@ -38,12 +43,24 @@ function ImportPreviewModal({ file, onClose, onConfirm }) {
   const [name, setName] = useState(() => stripExtension(file?.name));
   const [nameError, setNameError] = useState("");
 
+  // Optional taxonomy to attach at import time
+  const [taxonomyId, setTaxonomyId] = useState("");
+
   const isCurrentFile = result.file === file;
   const loading = !isCurrentFile || result.loading;
   const preview = isCurrentFile ? result.preview : null;
   const error = isCurrentFile ? result.error : "";
 
   const hasDuplicates = (preview?.duplicates || 0) > 0;
+
+  // Fetch active taxonomies for the picker
+  const { data: taxonomiesData } = useQuery({
+    queryKey: ["taxonomies", { isActive: true }],
+    queryFn: () => listTaxonomies({ isActive: true }),
+    staleTime: 60 * 1000,
+  });
+
+  const taxonomies = taxonomiesData?.taxonomies || [];
 
   useEffect(() => {
     let cancelled = false;
@@ -79,7 +96,11 @@ function ImportPreviewModal({ file, onClose, onConfirm }) {
       return;
     }
     setNameError("");
-    onConfirm(file, { dedupeStrategy, name: trimmed });
+    onConfirm(file, {
+      dedupeStrategy,
+      name: trimmed,
+      taxonomyId: taxonomyId || null,
+    });
   };
 
   return (
@@ -157,6 +178,39 @@ function ImportPreviewModal({ file, onClose, onConfirm }) {
                     </span>
                   </label>
                 )}
+              </div>
+
+              {/* Taxonomy picker */}
+              <div className="form-control">
+                <label className="label pb-1.5">
+                  <span className="label-text font-medium text-xs uppercase tracking-wider text-base-content/60 flex items-center gap-1.5">
+                    <Tags className="w-3 h-3" />
+                    Labels
+                    <span className="text-base-content/40 normal-case tracking-normal font-normal">
+                      (optional)
+                    </span>
+                  </span>
+                </label>
+                <select
+                  className="select select-bordered w-full"
+                  value={taxonomyId}
+                  onChange={(e) => setTaxonomyId(e.target.value)}
+                  disabled={taxonomies.length === 0}
+                >
+                  <option value="">Default labels</option>
+                  {taxonomies.map((t) => (
+                    <option key={t._id} value={t._id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </select>
+                <label className="label pt-1">
+                  <span className="label-text-alt text-base-content/50">
+                    {taxonomies.length === 0
+                      ? "No custom taxonomies yet — defaults will be used."
+                      : "You can change this anytime from the dataset page."}
+                  </span>
+                </label>
               </div>
 
               <div className="divider my-1"></div>
