@@ -1,11 +1,10 @@
-// React
+// src/pages/DatasetsPage.jsx
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-// Icons
 import {
   Upload,
   Eye,
@@ -22,7 +21,6 @@ import {
   FileUp,
 } from "lucide-react";
 
-// Services
 import {
   listDatasets,
   importDataset,
@@ -35,18 +33,17 @@ import {
 import { listUsers } from "../services/userApi";
 import { exportComments } from "../services/commentApi";
 
-// Context
-import { useAuth } from "../context/useAuth";
+import ImportPreviewModal from "../components/ImportPreviewModal";
 
-// Lib
+import { useAuth } from "../context/useAuth";
 import { toast, alertError, alertSuccess, confirmDelete } from "../lib/swal";
+import { getDatasetDisplayStatus, statusLabel } from "../lib/datasetStatus";
 
 function DatasetsPage() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const isAdmin = user?.role === "admin";
 
-  // Component state
   const [uploads, setUploads] = useState([]);
   const [deletingId, setDeletingId] = useState(null);
   const [exportingId, setExportingId] = useState(null);
@@ -54,11 +51,10 @@ function DatasetsPage() {
   const [renameTarget, setRenameTarget] = useState(null);
   const [duplicatingId, setDuplicatingId] = useState(null);
   const [dragOver, setDragOver] = useState(false);
+  const [previewFile, setPreviewFile] = useState(null);
 
-  // File input reference
   const fileInputRef = useRef(null);
 
-  // Check if any upload is still being processed
   const hasActiveUpload = uploads.some(
     (u) =>
       u.status === "uploading" ||
@@ -66,49 +62,44 @@ function DatasetsPage() {
       u.status === "pending",
   );
 
-  // Fetch datasets and refresh while uploads are active
   const {
     data,
     isLoading,
     error: listError,
   } = useQuery({
     queryKey: ["datasets"],
-    queryFn: () => listDatasets(),
+    // includeCounts makes the API return a `summary` per dataset, which the
+    // status badge needs to show annotation progress instead of the raw
+    // import status ("completed" only once every comment is annotated).
+    queryFn: () => listDatasets({ includeCounts: true }),
     refetchInterval: hasActiveUpload ? 2000 : false,
   });
 
-  // Get datasets from the API response
   const datasets = data?.datasets || [];
 
-  // Fetch users only for admins
   const { data: usersData } = useQuery({
     queryKey: ["users"],
     queryFn: listUsers,
     enabled: isAdmin,
   });
 
-  // Get active annotators
   const annotators = (usersData?.users || []).filter(
     (u) => u.role === "annotator" && u.isActive,
   );
 
-  // Get an annotator's name from their ID
   const annotatorName = (id) =>
     annotators.find((u) => u._id === id)?.name || "(removed)";
 
-  // Update an upload in the local queue
   const updateUpload = (id, patch) => {
     setUploads((prev) =>
       prev.map((u) => (u.id === id ? { ...u, ...patch } : u)),
     );
   };
 
-  // Remove an upload from the queue
   const removeUpload = (id) => {
     setUploads((prev) => prev.filter((u) => u.id !== id));
   };
 
-  // Check the dataset status until processing is finished
   const pollDataset = async (datasetId, uploadId) => {
     const maxAttempts = 80;
 
@@ -139,7 +130,7 @@ function DatasetsPage() {
 
         updateUpload(uploadId, { status: "processing" });
       } catch {
-        // Ignore temporary polling errors
+        // swallow polling hiccups
       }
     }
 
@@ -149,7 +140,6 @@ function DatasetsPage() {
     });
   };
 
-  // Upload a file and start dataset processing
   const startUpload = async (file, uploadId) => {
     try {
       const res = await importDataset(file, "", (pct) => {
@@ -171,12 +161,20 @@ function DatasetsPage() {
     }
   };
 
-  // Shared logic to queue files
+  // Open the preview modal instead of uploading directly
   const queueFiles = (files) => {
     if (!files.length) return;
+    setPreviewFile(files[0]);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
 
-    const newUploads = files.map((file) => ({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  // Called by ImportPreviewModal when the user confirms
+  const confirmPreviewImport = (file) => {
+    setPreviewFile(null);
+
+    const uploadId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const newUpload = {
+      id: uploadId,
       name: file.name,
       size: file.size,
       progress: 0,
@@ -186,24 +184,17 @@ function DatasetsPage() {
       importedRows: 0,
       skippedRows: 0,
       _file: file,
-    }));
+    };
 
-    setUploads((prev) => [...prev, ...newUploads]);
-
-    for (const u of newUploads) {
-      startUpload(u._file, u.id);
-    }
-
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    setUploads((prev) => [...prev, newUpload]);
+    startUpload(file, uploadId);
   };
 
-  // Handle files selected from the file picker
   const handleFilePick = (e) => {
     const files = Array.from(e.target.files || []);
     queueFiles(files);
   };
 
-  // Handle drag and drop
   const handleDrop = (e) => {
     e.preventDefault();
     setDragOver(false);
@@ -214,7 +205,6 @@ function DatasetsPage() {
     queueFiles(files);
   };
 
-  // Delete a dataset
   const handleDelete = async (ds) => {
     const ok = await confirmDelete(
       `Delete "${ds.name}"?`,
@@ -234,7 +224,6 @@ function DatasetsPage() {
     }
   };
 
-  // Assign or unassign a dataset
   const handleAssign = async (ds, assignedTo) => {
     if ((ds.assignedTo || null) === (assignedTo || null)) return;
 
@@ -257,7 +246,6 @@ function DatasetsPage() {
     }
   };
 
-  // Create a copy of a dataset
   const handleDuplicate = async (ds) => {
     setDuplicatingId(ds._id);
 
@@ -276,7 +264,6 @@ function DatasetsPage() {
     }
   };
 
-  // Export dataset comments
   const handleExport = async (ds, format) => {
     setExportingId(ds._id);
 
@@ -335,12 +322,11 @@ function DatasetsPage() {
                   Upload datasets
                 </h2>
                 <p className="text-xs text-base-content/60">
-                  CSV or XLSX · select one or many
+                  CSV or XLSX · you'll see a preview before importing
                 </p>
               </div>
             </div>
 
-            {/* Drag & drop zone */}
             <div
               onDragOver={(e) => {
                 e.preventDefault();
@@ -505,9 +491,7 @@ function DatasetsPage() {
                       <th>Name</th>
                       <th>File</th>
                       <th>Status</th>
-                      <th>Rows</th>
                       <th>Assigned</th>
-                      <th>Created</th>
                       <th className="text-right">Actions</th>
                     </tr>
                   </thead>
@@ -540,15 +524,9 @@ function DatasetsPage() {
                             {ds.originalFileName}
                           </td>
                           <td>
-                            <StatusBadge status={ds.status} />
-                          </td>
-                          <td className="text-sm">
-                            {ds.importedRows}/{ds.totalRows}
-                            {ds.skippedRows > 0 && (
-                              <span className="text-xs text-warning ml-1">
-                                ({ds.skippedRows} skipped)
-                              </span>
-                            )}
+                            <StatusBadge
+                              status={getDatasetDisplayStatus(ds, ds.summary)}
+                            />
                           </td>
                           <td className="text-xs">
                             {ds.assignedTo ? (
@@ -558,9 +536,6 @@ function DatasetsPage() {
                             ) : (
                               <span className="text-base-content/40">—</span>
                             )}
-                          </td>
-                          <td className="text-xs">
-                            {new Date(ds.createdAt).toLocaleString()}
                           </td>
                           <td className="text-right whitespace-nowrap">
                             <RowActions
@@ -586,7 +561,7 @@ function DatasetsPage() {
                 </table>
               </div>
 
-              {/* Mobile / tablet card list */}
+              {/* Mobile card list */}
               <div className="lg:hidden divide-y divide-base-200">
                 {datasets.map((ds) => {
                   const isDeleting = deletingId === ds._id;
@@ -601,7 +576,6 @@ function DatasetsPage() {
                       key={ds._id}
                       className={`p-4 ${isDeleting ? "opacity-50" : ""}`}
                     >
-                      {/* Header */}
                       <div className="flex items-start justify-between gap-3 mb-3">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
@@ -616,10 +590,11 @@ function DatasetsPage() {
                             {ds.originalFileName}
                           </p>
                         </div>
-                        <StatusBadge status={ds.status} />
+                        <StatusBadge
+                          status={getDatasetDisplayStatus(ds, ds.summary)}
+                        />
                       </div>
 
-                      {/* Meta grid */}
                       <div className="grid grid-cols-2 gap-2 text-xs mb-3">
                         <div className="flex flex-col">
                           <span className="text-base-content/50">Rows</span>
@@ -650,7 +625,6 @@ function DatasetsPage() {
                         </div>
                       </div>
 
-                      {/* Actions */}
                       <div className="flex items-center gap-1 flex-wrap">
                         <RowActions
                           ds={ds}
@@ -677,6 +651,7 @@ function DatasetsPage() {
         </div>
       </div>
 
+      {/* Rename modal */}
       {renameTarget && (
         <RenameDatasetModal
           dataset={renameTarget}
@@ -689,6 +664,15 @@ function DatasetsPage() {
           onError={(msg) => alertError("Rename failed", msg)}
         />
       )}
+
+      {/* Import preview modal */}
+      {previewFile && (
+        <ImportPreviewModal
+          file={previewFile}
+          onClose={() => setPreviewFile(null)}
+          onConfirm={confirmPreviewImport}
+        />
+      )}
     </div>
   );
 }
@@ -696,7 +680,7 @@ function DatasetsPage() {
 export default DatasetsPage;
 
 /* ---------------------------------------------------------------- */
-/* Row actions — portal-based dropdowns (never clipped or flipped)   */
+/* Row actions                                                       */
 /* ---------------------------------------------------------------- */
 function RowActions({
   ds,
@@ -712,17 +696,13 @@ function RowActions({
   onDuplicate,
   onDelete,
 }) {
-  // Which menu is open for this row: "export" | "actions" | null
   const [openMenu, setOpenMenu] = useState(null);
-
-  // Stored menu position (computed at open time, not during render)
   const [menuStyle, setMenuStyle] = useState(null);
 
   const exportBtnRef = useRef(null);
   const actionsBtnRef = useRef(null);
   const menuRef = useRef(null);
 
-  // Compute fixed-position coordinates for a menu anchored to a button
   const computeMenuStyle = (btnEl, menuWidth, menuHeight) => {
     if (!btnEl) return null;
     const rect = btnEl.getBoundingClientRect();
@@ -751,12 +731,11 @@ function RowActions({
         };
   };
 
-  // Open a menu and store its computed position
   const openWith = (menuName) => {
     const btnEl =
       menuName === "export" ? exportBtnRef.current : actionsBtnRef.current;
     const menuWidth = menuName === "export" ? 144 : 224;
-    const menuHeight = menuName === "export" ? 100 : 320;
+    const menuHeight = menuName === "export" ? 100 : 340;
     setMenuStyle(computeMenuStyle(btnEl, menuWidth, menuHeight));
     setOpenMenu(menuName);
   };
@@ -775,7 +754,6 @@ function RowActions({
     setMenuStyle(null);
   };
 
-  // Close on outside click / Escape / scroll / resize
   useEffect(() => {
     if (!openMenu) return;
 
@@ -853,7 +831,6 @@ function RowActions({
         style={menuStyle}
         className="menu bg-base-100 rounded-box p-2 shadow-lg border border-base-200"
       >
-        {/* Assign */}
         <div className="menu-title text-xs px-3 pt-1">Assign to</div>
         <div className="max-h-52 overflow-y-auto">
           {annotators.length === 0 && (
@@ -949,13 +926,11 @@ function RowActions({
 
   return (
     <>
-      {/* View */}
       <Link to={`/datasets/${ds._id}`} className="btn btn-xs btn-ghost gap-1">
         <Eye className="w-3.5 h-3.5" />
         View
       </Link>
 
-      {/* Export trigger */}
       <button
         ref={exportBtnRef}
         className="btn btn-xs btn-ghost gap-1"
@@ -970,7 +945,6 @@ function RowActions({
         {isExporting ? "Exporting" : "Export"}
       </button>
 
-      {/* Actions trigger */}
       {isAdmin && (
         <button
           ref={actionsBtnRef}
@@ -995,14 +969,13 @@ function RowActions({
 }
 
 /* ---------------------------------------------------------------- */
-/* Skeleton placeholder rows                                        */
+/* Skeleton                                                          */
 /* ---------------------------------------------------------------- */
 function DatasetsTableSkeleton({ rows = 5 }) {
   const skeletonRows = Array.from({ length: rows });
 
   return (
     <div className="p-4">
-      {/* Desktop skeleton */}
       <div className="hidden lg:block">
         <table className="table table-zebra">
           <thead>
@@ -1050,7 +1023,6 @@ function DatasetsTableSkeleton({ rows = 5 }) {
         </table>
       </div>
 
-      {/* Mobile skeleton */}
       <div className="lg:hidden divide-y divide-base-200">
         {skeletonRows.map((_, i) => (
           <div key={i} className="py-4">
@@ -1079,7 +1051,7 @@ function DatasetsTableSkeleton({ rows = 5 }) {
 }
 
 /* ---------------------------------------------------------------- */
-/* Rename Dataset Modal                                             */
+/* Rename modal                                                     */
 /* ---------------------------------------------------------------- */
 function RenameDatasetModal({ dataset, onClose, onDone, onError }) {
   const [loading, setLoading] = useState(false);
@@ -1114,7 +1086,6 @@ function RenameDatasetModal({ dataset, onClose, onDone, onError }) {
   return (
     <div className="modal modal-open">
       <div className="modal-box max-w-md">
-        {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-bold text-lg flex items-center gap-2">
             <Pencil className="w-5 h-5" />
@@ -1131,7 +1102,6 @@ function RenameDatasetModal({ dataset, onClose, onDone, onError }) {
           </button>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
           <div className="form-control">
             <label className="label">
@@ -1209,15 +1179,14 @@ function StatusBadge({ status }) {
   const map = {
     pending: "badge-warning",
     processing: "badge-info",
+    in_progress: "badge-info",
     completed: "badge-success",
     failed: "badge-error",
   };
 
   return (
-    <span
-      className={`badge ${map[status] || "badge-ghost"} badge-sm capitalize`}
-    >
-      {status}
+    <span className={`badge ${map[status] || "badge-ghost"} badge-sm`}>
+      {statusLabel(status)}
     </span>
   );
 }
