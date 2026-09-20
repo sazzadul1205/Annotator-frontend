@@ -1,5 +1,6 @@
 // React
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useParams, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -7,6 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   UserPlus,
+  UserMinus,
   Save,
   Trash2,
   Search,
@@ -14,6 +16,10 @@ import {
   History,
   RotateCcw,
   X,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  ListFilter,
 } from "lucide-react";
 
 // Services
@@ -31,14 +37,11 @@ import { getDataset, assignDataset } from "../services/datasetApi";
 import { useAuth } from "../context/useAuth";
 
 // Lib
-import {
-  toast,
-  alertError,
-  confirmAction,
-  confirmDelete,
-} from "../lib/swal";
+import { toast, alertError, confirmAction, confirmDelete } from "../lib/swal";
 
 const PAGE_SIZES = [5, 10, 20, 50];
+const SENTIMENTS = ["positive", "negative", "neutral"];
+const TYPES = ["bangla", "english", "banglish"];
 
 export default function DatasetDetailPage() {
   const { id } = useParams();
@@ -124,12 +127,8 @@ export default function DatasetDetailPage() {
     return {
       sentiment:
         local.sentiment ??
-        (["positive", "negative", "neutral"].includes(c.sentiment)
-          ? c.sentiment
-          : ""),
-      type:
-        local.type ??
-        (["bangla", "english", "banglish"].includes(c.type) ? c.type : ""),
+        (SENTIMENTS.includes(c.sentiment) ? c.sentiment : ""),
+      type: local.type ?? (TYPES.includes(c.type) ? c.type : ""),
     };
   };
 
@@ -149,14 +148,10 @@ export default function DatasetDetailPage() {
       return;
     }
 
-    const serverSentiment = ["positive", "negative", "neutral"].includes(
-      comment.sentiment,
-    )
+    const serverSentiment = SENTIMENTS.includes(comment.sentiment)
       ? comment.sentiment
       : "";
-    const serverType = ["bangla", "english", "banglish"].includes(comment.type)
-      ? comment.type
-      : "";
+    const serverType = TYPES.includes(comment.type) ? comment.type : "";
 
     if (row.sentiment === serverSentiment && row.type === serverType) {
       return;
@@ -224,12 +219,10 @@ export default function DatasetDetailPage() {
 
   // ---------- Render ----------
 
-  // Full-page skeleton while the dataset itself is loading
   if (loadingDs) {
     return <DatasetDetailSkeleton isAdmin={isAdmin} />;
   }
 
-  // Not found
   if (!dataset) {
     return (
       <div className="text-center py-10">
@@ -243,87 +236,78 @@ export default function DatasetDetailPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <div>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
+        <div className="min-w-0">
           <Link
             to="/datasets"
-            className="text-xs link link-hover mb-1 flex items-center gap-1"
+            className="text-xs link link-hover mb-1 inline-flex items-center gap-1 text-base-content/60"
           >
             <ArrowLeft className="w-3 h-3" />
             Back to Datasets
           </Link>
-          <h1 className="text-2xl font-semibold">{dataset.name}</h1>
-          <p className="text-xs text-base-content/60">
-            {dataset.originalFileName} · {dataset.status}
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight truncate">
+            {dataset.name}
+          </h1>
+          <p className="text-xs sm:text-sm text-base-content/60 mt-1 flex items-center gap-2 flex-wrap">
+            <span className="truncate">{dataset.originalFileName}</span>
+            <StatusBadge status={dataset.status} />
           </p>
         </div>
       </div>
 
       {/* Info + progress */}
-      <div className="card bg-base-100 shadow-sm mb-4">
-        <div className="card-body py-4">
-          <div className="flex flex-wrap items-center gap-4 mb-3">
-            <div className="text-sm">
-              <span className="text-base-content/60">Imported: </span>
-              <strong>
-                {dataset.importedRows}/{dataset.totalRows}
-              </strong>
-              {dataset.skippedRows > 0 && (
-                <span className="text-warning ml-1">
-                  ({dataset.skippedRows} skipped)
+      <div className="card bg-base-100 shadow-sm border border-base-200 mb-4">
+        <div className="card-body p-4 sm:p-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-4">
+            {/* Imported */}
+            <div className="flex flex-col">
+              <span className="text-xs text-base-content/50 uppercase tracking-wide">
+                Imported rows
+              </span>
+              <span className="text-sm sm:text-base font-semibold">
+                {dataset.importedRows}
+                <span className="text-base-content/50 font-normal">
+                  {" "}
+                  / {dataset.totalRows}
                 </span>
-              )}
+                {dataset.skippedRows > 0 && (
+                  <span className="text-warning ml-2 text-xs">
+                    ({dataset.skippedRows} skipped)
+                  </span>
+                )}
+              </span>
             </div>
 
-            <div className="text-sm">
-              <span className="text-base-content/60">Assignee: </span>
-              <strong>{isAdmin ? assigneeName() : "You"}</strong>
+            {/* Assignee */}
+            <div className="flex flex-col">
+              <span className="text-xs text-base-content/50 uppercase tracking-wide">
+                Assignee
+              </span>
+              <span className="text-sm sm:text-base font-semibold truncate">
+                {isAdmin ? assigneeName() : "You"}
+              </span>
             </div>
 
+            {/* Actions */}
             {isAdmin && (
-              <div className="dropdown dropdown-end ml-auto">
-                <button
-                  tabIndex={0}
-                  className="btn btn-sm btn-outline gap-1"
-                >
-                  <UserPlus className="w-4 h-4" />
-                  Assign Dataset
-                </button>
-                <ul
-                  tabIndex={0}
-                  className="dropdown-content menu bg-base-100 rounded-box z-10 w-48 p-2 shadow"
-                >
-                  <li>
-                    <button
-                      onClick={() => handleAssign(null)}
-                      disabled={!dataset.assignedTo}
-                    >
-                      Unassign
-                    </button>
-                  </li>
-                  {annotators.length === 0 && (
-                    <li className="disabled">
-                      <span>No annotators</span>
-                    </li>
-                  )}
-                  {annotators.map((u) => (
-                    <li key={u._id}>
-                      <button onClick={() => handleAssign(u._id)}>
-                        {u.name}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+              <div className="flex sm:justify-end items-center">
+                <AssignDropdown
+                  annotators={annotators}
+                  assignedTo={dataset.assignedTo}
+                  onAssign={handleAssign}
+                />
               </div>
             )}
           </div>
 
+          {/* Progress */}
           <div>
             <div className="flex items-baseline justify-between mb-1">
-              <span className="text-xs text-base-content/60">
+              <span className="text-xs text-base-content/60 font-medium">
                 Annotation Progress
               </span>
-              <span className="text-xs">
+              <span className="text-xs sm:text-sm">
                 <strong>{summary.annotated}</strong>
                 <span className="text-base-content/60"> / {summary.total}</span>
                 <span className="ml-2 badge badge-sm badge-ghost">
@@ -336,12 +320,12 @@ export default function DatasetDetailPage() {
               value={summary.annotated}
               max={summary.total || 1}
             />
-            <div className="text-xs text-base-content/50 mt-1 flex items-center gap-1">
+            <div className="text-xs text-base-content/50 mt-1.5 flex items-center gap-1">
               {summary.pending} pending
               {summary.total > 0 && summary.pending === 0 && (
                 <>
                   <CheckCircle2 className="w-3.5 h-3.5 text-success" />
-                  all done
+                  <span className="text-success font-medium">all done</span>
                 </>
               )}
             </div>
@@ -350,194 +334,141 @@ export default function DatasetDetailPage() {
       </div>
 
       {/* Filters */}
-      <div className="card bg-base-100 shadow-sm mb-4">
-        <div className="card-body py-3">
-          <div className="flex flex-wrap gap-3 items-center">
-            <select
-              className="select select-bordered select-sm"
-              value={filterStatus}
-              onChange={(e) => {
-                setFilterStatus(e.target.value);
-                setPage(1);
-              }}
-            >
-              <option value="">All statuses</option>
-              <option value="pending">Pending only</option>
-              <option value="annotated">Annotated only</option>
-            </select>
-
-            {!filterStatus && (
-              <label className="label cursor-pointer gap-2 py-0">
-                <input
-                  type="checkbox"
-                  className="checkbox checkbox-sm"
-                  checked={hideAnnotated}
-                  onChange={(e) => {
-                    setHideAnnotated(e.target.checked);
-                    setPage(1);
-                  }}
-                />
-                <span className="label-text text-sm">Hide annotated</span>
-              </label>
-            )}
-
-            <form onSubmit={handleSearchSubmit} className="join">
-              <input
-                type="text"
-                className="input input-bordered input-sm join-item w-64"
-                placeholder="Search text..."
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-              />
-              <button
-                className="btn btn-sm join-item gap-1"
-                type="submit"
+      <div className="card bg-base-100 shadow-sm border border-base-200 mb-4">
+        <div className="card-body p-3 sm:p-4">
+          <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+            {/* Left group: status + hide */}
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <div className="flex items-center gap-1.5 text-base-content/60">
+                <Filter className="w-3.5 h-3.5" />
+                <span className="text-xs font-medium hidden sm:inline">
+                  Status
+                </span>
+              </div>
+              <select
+                className="select select-bordered select-sm w-full sm:w-auto"
+                value={filterStatus}
+                onChange={(e) => {
+                  setFilterStatus(e.target.value);
+                  setPage(1);
+                }}
               >
-                <Search className="w-3.5 h-3.5" />
+                <option value="">All statuses</option>
+                <option value="pending">Pending only</option>
+                <option value="annotated">Annotated only</option>
+              </select>
+
+              {!filterStatus && (
+                <label className="label cursor-pointer gap-2 py-0">
+                  <input
+                    type="checkbox"
+                    className="checkbox checkbox-sm"
+                    checked={hideAnnotated}
+                    onChange={(e) => {
+                      setHideAnnotated(e.target.checked);
+                      setPage(1);
+                    }}
+                  />
+                  <span className="label-text text-xs sm:text-sm">
+                    Hide annotated
+                  </span>
+                </label>
+              )}
+            </div>
+
+            {/* Search */}
+            <form
+              onSubmit={handleSearchSubmit}
+              className="join w-full lg:w-auto lg:ml-auto"
+            >
+              <label className="input input-bordered input-sm join-item flex items-center gap-2 flex-1 lg:w-64">
+                <Search className="w-3.5 h-3.5 text-base-content/40" />
+                <input
+                  type="text"
+                  className="grow"
+                  placeholder="Search text..."
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                />
+              </label>
+              <button className="btn btn-sm join-item" type="submit">
                 Go
               </button>
             </form>
 
-            <span className="text-sm text-base-content/60 ml-auto">
-              {total} comments
+            {/* Count */}
+            <span className="text-xs sm:text-sm text-base-content/60 whitespace-nowrap">
+              <strong className="text-base-content">{total}</strong> comments
             </span>
           </div>
         </div>
       </div>
 
-      {/* Comments table */}
-      <div className="card bg-base-100 shadow-sm">
-        <div className="card-body">
+      {/* Comments */}
+      <div className="card bg-base-100 shadow-sm border border-base-200">
+        <div className="card-body p-0 sm:p-2">
           {loadingComments ? (
-            <CommentsTableSkeleton rows={pageSize > 20 ? 10 : pageSize} />
+            <CommentsTableSkeleton rows={pageSize > 20 ? 8 : pageSize} />
           ) : comments.length === 0 ? (
-            <p className="text-center text-base-content/60 py-6">
-              No comments found.
-            </p>
+            <div className="text-center py-12 px-4">
+              <ListFilter className="w-10 h-10 mx-auto text-base-content/30 mb-3" />
+              <p className="font-medium">No comments found</p>
+              <p className="text-sm text-base-content/60 mt-1">
+                Try adjusting your filters or search.
+              </p>
+            </div>
           ) : (
             <>
-              <div>
+              {/* Desktop table */}
+              <div className="hidden lg:block overflow-x-auto">
                 <table className="table table-zebra table-sm">
-                  <thead>
+                  <thead className="sticky top-0 bg-base-100 z-10">
                     <tr>
-                      <th>ID</th>
+                      <th className="w-24">ID</th>
                       <th>Comment</th>
-                      <th>Sentiment</th>
-                      <th>Type</th>
-                      <th>Status</th>
-                      <th className="text-right">Actions</th>
+                      <th className="w-32">Sentiment</th>
+                      <th className="w-28">Type</th>
+                      <th className="w-24">Status</th>
+                      <th className="text-right w-56">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {comments.map((c) => {
-                      const row = resolveRow(c);
-
-                      const serverSentiment = [
-                        "positive",
-                        "negative",
-                        "neutral",
-                      ].includes(c.sentiment)
-                        ? c.sentiment
-                        : "";
-                      const serverType = [
-                        "bangla",
-                        "english",
-                        "banglish",
-                      ].includes(c.type)
-                        ? c.type
-                        : "";
-
-                      const dirty =
-                        row.sentiment !== serverSentiment ||
-                        row.type !== serverType;
-                      const canSave = dirty && !!row.sentiment && !!row.type;
-
-                      return (
-                        <tr key={c._id}>
-                          <td className="text-xs font-mono">{c.sourceId}</td>
-                          <td className="max-w-md">
-                            <span className="line-clamp-2">
-                              {c.commentText}
-                            </span>
-                          </td>
-                          <td>
-                            <select
-                              className="select select-bordered select-xs w-28"
-                              value={row.sentiment}
-                              onChange={(e) =>
-                                setRow(c._id, { sentiment: e.target.value })
-                              }
-                            >
-                              <option value="">—</option>
-                              <option value="positive">positive</option>
-                              <option value="negative">negative</option>
-                              <option value="neutral">neutral</option>
-                            </select>
-                          </td>
-                          <td>
-                            <select
-                              className="select select-bordered select-xs w-24"
-                              value={row.type}
-                              onChange={(e) =>
-                                setRow(c._id, { type: e.target.value })
-                              }
-                            >
-                              <option value="">—</option>
-                              <option value="bangla">bangla</option>
-                              <option value="english">english</option>
-                              <option value="banglish">banglish</option>
-                            </select>
-                          </td>
-                          <td>
-                            <span
-                              className={`badge badge-sm ${c.status === "annotated"
-                                  ? "badge-success"
-                                  : "badge-warning"
-                                }`}
-                            >
-                              {c.status}
-                            </span>
-                          </td>
-                          <td className="text-right whitespace-nowrap">
-                            <button
-                              className="btn btn-xs btn-primary gap-1"
-                              onClick={() => handleSave(c)}
-                              disabled={!canSave}
-                            >
-                              <Save className="w-3.5 h-3.5" />
-                              Save
-                            </button>
-
-                            {isAdmin && (
-                              <>
-                                <button
-                                  className="btn btn-xs btn-ghost ml-1 gap-1"
-                                  onClick={() => setHistoryCommentId(c._id)}
-                                  title="Version history"
-                                >
-                                  <History className="w-3.5 h-3.5" />
-                                  History
-                                </button>
-                                <button
-                                  className="btn btn-xs btn-ghost text-error ml-1 gap-1"
-                                  onClick={() => handleDelete(c._id)}
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                  Del
-                                </button>
-                              </>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {comments.map((c) => (
+                      <CommentRow
+                        key={c._id}
+                        comment={c}
+                        isAdmin={isAdmin}
+                        row={resolveRow(c)}
+                        setRow={setRow}
+                        onSave={handleSave}
+                        onDelete={handleDelete}
+                        onHistory={setHistoryCommentId}
+                      />
+                    ))}
                   </tbody>
                 </table>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-base-content/60">
+              {/* Mobile / tablet cards */}
+              <div className="lg:hidden divide-y divide-base-200">
+                {comments.map((c) => (
+                  <CommentCard
+                    key={c._id}
+                    comment={c}
+                    isAdmin={isAdmin}
+                    row={resolveRow(c)}
+                    setRow={setRow}
+                    onSave={handleSave}
+                    onDelete={handleDelete}
+                    onHistory={setHistoryCommentId}
+                  />
+                ))}
+              </div>
+
+              {/* Pagination */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-t border-base-200">
+                <div className="flex items-center gap-2 order-2 sm:order-1">
+                  <span className="text-xs text-base-content/60 whitespace-nowrap">
                     Rows per page
                   </span>
                   <select
@@ -555,24 +486,26 @@ export default function DatasetDetailPage() {
                   </select>
                 </div>
 
-                <span className="text-xs text-base-content/60">
-                  Page {page} of {totalPages}
+                <span className="text-xs text-base-content/60 text-center order-3 sm:order-2">
+                  Page <strong>{page}</strong> of <strong>{totalPages}</strong>
                 </span>
 
-                <div className="join">
+                <div className="join order-1 sm:order-3 self-stretch sm:self-auto">
                   <button
-                    className="btn btn-sm join-item"
+                    className="btn btn-sm join-item flex-1 sm:flex-none gap-1"
                     disabled={page <= 1}
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                   >
-                    «
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Prev</span>
                   </button>
                   <button
-                    className="btn btn-sm join-item"
+                    className="btn btn-sm join-item flex-1 sm:flex-none gap-1"
                     disabled={page >= totalPages}
                     onClick={() => setPage((p) => p + 1)}
                   >
-                    »
+                    <span className="hidden sm:inline">Next</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
@@ -593,118 +526,525 @@ export default function DatasetDetailPage() {
   );
 }
 
-// Skeleton loaders
+/* ---------------------------------------------------------------- */
+/* Assign dropdown (portal-based, never clipped)                    */
+/* ---------------------------------------------------------------- */
+function AssignDropdown({ annotators, assignedTo, onAssign }) {
+  const [open, setOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState(null);
+  const btnRef = useRef(null);
+  const menuRef = useRef(null);
 
-function DatasetDetailSkeleton({ isAdmin }) {
+  useEffect(() => {
+    if (!open) return;
+
+    const onDown = (e) => {
+      if (menuRef.current?.contains(e.target)) return;
+      if (btnRef.current?.contains(e.target)) return;
+      setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    const onScrollOrResize = () => setOpen(false);
+
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [open]);
+
+  const toggle = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    const btn = btnRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const menuWidth = 224;
+    const menuHeight = 320;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openUp = spaceBelow < menuHeight + 12;
+    const left = Math.max(
+      8,
+      Math.min(rect.right - menuWidth, window.innerWidth - menuWidth - 8),
+    );
+
+    setMenuStyle(
+      openUp
+        ? {
+            position: "fixed",
+            bottom: window.innerHeight - rect.top + 6,
+            left,
+            width: menuWidth,
+            zIndex: 9999,
+          }
+        : {
+            position: "fixed",
+            top: rect.bottom + 6,
+            left,
+            width: menuWidth,
+            zIndex: 9999,
+          },
+    );
+    setOpen(true);
+  };
+
   return (
-    <div>
+    <>
+      <button
+        ref={btnRef}
+        className="btn btn-sm btn-outline gap-2 w-full sm:w-auto"
+        onClick={toggle}
+      >
+        <UserPlus className="w-4 h-4" />
+        Assign Dataset
+      </button>
+
+      {open &&
+        menuStyle &&
+        createPortal(
+          <div
+            ref={menuRef}
+            style={menuStyle}
+            className="menu bg-base-100 rounded-box p-2 shadow-lg border border-base-200"
+          >
+            <div className="menu-title text-xs px-3 pt-1">Assign to</div>
+            <div className="max-h-52 overflow-y-auto">
+              {annotators.length === 0 && (
+                <div className="px-3 py-2 text-sm opacity-50">
+                  No annotators
+                </div>
+              )}
+              {annotators.map((u) => {
+                const isCurrent = assignedTo === u._id;
+                return (
+                  <button
+                    key={u._id}
+                    disabled={isCurrent}
+                    onClick={() => {
+                      setOpen(false);
+                      onAssign(u._id);
+                    }}
+                    className={`flex items-center justify-between gap-2 w-full px-3 py-2 rounded text-left text-sm ${
+                      isCurrent
+                        ? "bg-primary/10 text-primary"
+                        : "hover:bg-base-200"
+                    }`}
+                  >
+                    <span className="truncate">{u.name}</span>
+                    {isCurrent && (
+                      <span className="badge badge-xs badge-primary shrink-0">
+                        current
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {assignedTo && (
+              <>
+                <div className="divider my-1"></div>
+                <button
+                  onClick={() => {
+                    setOpen(false);
+                    onAssign(null);
+                  }}
+                  className="flex items-center gap-2 w-full px-3 py-2 rounded text-left text-sm text-error hover:bg-error/10"
+                >
+                  <UserMinus className="w-3.5 h-3.5" />
+                  Unassign
+                </button>
+              </>
+            )}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Desktop table row                                                */
+/* ---------------------------------------------------------------- */
+function CommentRow({
+  comment,
+  isAdmin,
+  row,
+  setRow,
+  onSave,
+  onDelete,
+  onHistory,
+}) {
+  const serverSentiment = SENTIMENTS.includes(comment.sentiment)
+    ? comment.sentiment
+    : "";
+  const serverType = TYPES.includes(comment.type) ? comment.type : "";
+  const dirty = row.sentiment !== serverSentiment || row.type !== serverType;
+  const canSave = dirty && !!row.sentiment && !!row.type;
+
+  return (
+    <tr className={dirty ? "bg-warning/5" : ""}>
+      <td className="text-xs font-mono text-base-content/60">
+        {comment.sourceId}
+      </td>
+      <td className="max-w-md">
+        <span className="line-clamp-2 text-sm">{comment.commentText}</span>
+      </td>
+      <td>
+        <select
+          className={`select select-bordered select-xs w-full max-w-32 ${
+            dirty && !row.sentiment ? "select-warning" : ""
+          }`}
+          value={row.sentiment}
+          onChange={(e) => setRow(comment._id, { sentiment: e.target.value })}
+        >
+          <option value="">—</option>
+          {SENTIMENTS.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td>
+        <select
+          className={`select select-bordered select-xs w-full max-w-28 ${
+            dirty && !row.type ? "select-warning" : ""
+          }`}
+          value={row.type}
+          onChange={(e) => setRow(comment._id, { type: e.target.value })}
+        >
+          <option value="">—</option>
+          {TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td>
+        <StatusBadge status={comment.status} />
+      </td>
+      <td className="text-right whitespace-nowrap">
+        <button
+          className="btn btn-xs btn-primary gap-1"
+          onClick={() => onSave(comment)}
+          disabled={!canSave}
+        >
+          <Save className="w-3.5 h-3.5" />
+          Save
+        </button>
+
+        {isAdmin && (
+          <>
+            <button
+              className="btn btn-xs btn-ghost ml-1 gap-1"
+              onClick={() => onHistory(comment._id)}
+              title="Version history"
+            >
+              <History className="w-3.5 h-3.5" />
+              History
+            </button>
+            <button
+              className="btn btn-xs btn-ghost text-error ml-1 gap-1"
+              onClick={() => onDelete(comment._id)}
+              title="Delete comment"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Del
+            </button>
+          </>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Mobile comment card                                              */
+/* ---------------------------------------------------------------- */
+function CommentCard({
+  comment,
+  isAdmin,
+  row,
+  setRow,
+  onSave,
+  onDelete,
+  onHistory,
+}) {
+  const serverSentiment = SENTIMENTS.includes(comment.sentiment)
+    ? comment.sentiment
+    : "";
+  const serverType = TYPES.includes(comment.type) ? comment.type : "";
+  const dirty = row.sentiment !== serverSentiment || row.type !== serverType;
+  const canSave = dirty && !!row.sentiment && !!row.type;
+
+  return (
+    <div className={`p-4 ${dirty ? "bg-warning/5" : ""}`}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="w-full">
-          <div className="skeleton h-3 w-32 mb-2" />
-          <div className="skeleton h-7 w-64 mb-2" />
-          <div className="skeleton h-3 w-40" />
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <span className="text-xs font-mono text-base-content/50">
+          {comment.sourceId}
+        </span>
+        <StatusBadge status={comment.status} />
+      </div>
+
+      {/* Comment text */}
+      <p className="text-sm mb-3 leading-relaxed">{comment.commentText}</p>
+
+      {/* Inputs */}
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        <div>
+          <label className="text-xs text-base-content/50 block mb-1">
+            Sentiment
+          </label>
+          <select
+            className={`select select-bordered select-sm w-full ${
+              dirty && !row.sentiment ? "select-warning" : ""
+            }`}
+            value={row.sentiment}
+            onChange={(e) => setRow(comment._id, { sentiment: e.target.value })}
+          >
+            <option value="">—</option>
+            {SENTIMENTS.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs text-base-content/50 block mb-1">
+            Type
+          </label>
+          <select
+            className={`select select-bordered select-sm w-full ${
+              dirty && !row.type ? "select-warning" : ""
+            }`}
+            value={row.type}
+            onChange={(e) => setRow(comment._id, { type: e.target.value })}
+          >
+            <option value="">—</option>
+            {TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
-      {/* Info + progress card */}
-      <div className="card bg-base-100 shadow-sm mb-4">
-        <div className="card-body py-4">
-          <div className="flex flex-wrap items-center gap-4 mb-3">
-            <div className="skeleton h-4 w-40" />
-            <div className="skeleton h-4 w-40" />
-            {isAdmin && <div className="skeleton h-8 w-36 ml-auto" />}
-          </div>
+      {/* Actions */}
+      <div className="flex items-center gap-1 flex-wrap">
+        <button
+          className="btn btn-xs btn-primary gap-1 flex-1 sm:flex-none"
+          onClick={() => onSave(comment)}
+          disabled={!canSave}
+        >
+          <Save className="w-3.5 h-3.5" />
+          Save
+        </button>
 
-          <div className="flex items-baseline justify-between mb-2">
+        {isAdmin && (
+          <>
+            <button
+              className="btn btn-xs btn-ghost gap-1"
+              onClick={() => onHistory(comment._id)}
+            >
+              <History className="w-3.5 h-3.5" />
+              History
+            </button>
+            <button
+              className="btn btn-xs btn-ghost text-error gap-1"
+              onClick={() => onDelete(comment._id)}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Status badge                                                     */
+/* ---------------------------------------------------------------- */
+function StatusBadge({ status }) {
+  const map = {
+    pending: "badge-warning",
+    processing: "badge-info",
+    completed: "badge-success",
+    failed: "badge-error",
+    annotated: "badge-success",
+  };
+
+  return (
+    <span
+      className={`badge ${map[status] || "badge-ghost"} badge-sm capitalize`}
+    >
+      {status}
+    </span>
+  );
+}
+
+/* ---------------------------------------------------------------- */
+/* Skeleton loaders                                                 */
+/* ---------------------------------------------------------------- */
+function DatasetDetailSkeleton({ isAdmin }) {
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      {/* Header */}
+      <div className="mb-6">
+        <div className="skeleton h-3 w-32 mb-2" />
+        <div className="skeleton h-8 w-64 mb-2" />
+        <div className="skeleton h-4 w-48" />
+      </div>
+
+      {/* Info card */}
+      <div className="card bg-base-100 shadow-sm border border-base-200 mb-4">
+        <div className="card-body p-4 sm:p-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+            <div className="space-y-2">
+              <div className="skeleton h-3 w-24" />
+              <div className="skeleton h-5 w-32" />
+            </div>
+            <div className="space-y-2">
+              <div className="skeleton h-3 w-20" />
+              <div className="skeleton h-5 w-28" />
+            </div>
+            {isAdmin && (
+              <div className="flex sm:justify-end">
+                <div className="skeleton h-8 w-40" />
+              </div>
+            )}
+          </div>
+          <div className="flex justify-between mb-2">
             <div className="skeleton h-3 w-32" />
             <div className="skeleton h-3 w-24" />
           </div>
           <div className="skeleton h-3 w-full rounded-full" />
-          <div className="skeleton h-3 w-24 mt-2" />
         </div>
       </div>
 
       {/* Filters card */}
-      <div className="card bg-base-100 shadow-sm mb-4">
-        <div className="card-body py-3">
-          <div className="flex flex-wrap gap-3 items-center">
+      <div className="card bg-base-100 shadow-sm border border-base-200 mb-4">
+        <div className="card-body p-4">
+          <div className="flex flex-wrap gap-3">
             <div className="skeleton h-8 w-32" />
             <div className="skeleton h-4 w-28" />
-            <div className="skeleton h-8 w-64" />
-            <div className="skeleton h-4 w-24 ml-auto" />
+            <div className="skeleton h-8 w-64 ml-auto" />
           </div>
         </div>
       </div>
 
       {/* Comments card */}
-      <div className="card bg-base-100 shadow-sm">
-        <div className="card-body">
-          <CommentsTableSkeleton rows={8} />
+      <div className="card bg-base-100 shadow-sm border border-base-200">
+        <div className="card-body p-0 sm:p-2">
+          <CommentsTableSkeleton rows={6} />
         </div>
       </div>
     </div>
   );
 }
 
-function CommentsTableSkeleton({ rows = 8 }) {
+function CommentsTableSkeleton({ rows = 6 }) {
   const skeletonRows = Array.from({ length: rows });
 
   return (
-    <div>
-      <table className="table table-zebra table-sm">
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Comment</th>
-            <th>Sentiment</th>
-            <th>Type</th>
-            <th>Status</th>
-            <th className="text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {skeletonRows.map((_, i) => (
-            <tr key={i}>
-              <td>
-                <div className="skeleton h-3 w-12" />
-              </td>
-              <td className="max-w-md">
-                <div className="skeleton h-3 w-full mb-1" />
-                <div className="skeleton h-3 w-2/3" />
-              </td>
-              <td>
-                <div className="skeleton h-6 w-28 rounded-md" />
-              </td>
-              <td>
-                <div className="skeleton h-6 w-24 rounded-md" />
-              </td>
-              <td>
-                <div className="skeleton h-5 w-20 rounded-full" />
-              </td>
-              <td className="text-right">
-                <div className="flex justify-end gap-1">
-                  <div className="skeleton h-6 w-16 rounded-md" />
-                  <div className="skeleton h-6 w-20 rounded-md" />
-                  <div className="skeleton h-6 w-14 rounded-md" />
-                </div>
-              </td>
+    <div className="p-4">
+      {/* Desktop */}
+      <div className="hidden lg:block">
+        <table className="table table-zebra table-sm">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Comment</th>
+              <th>Sentiment</th>
+              <th>Type</th>
+              <th>Status</th>
+              <th className="text-right">Actions</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {skeletonRows.map((_, i) => (
+              <tr key={i}>
+                <td>
+                  <div className="skeleton h-3 w-12" />
+                </td>
+                <td className="max-w-md">
+                  <div className="skeleton h-3 w-full mb-1" />
+                  <div className="skeleton h-3 w-2/3" />
+                </td>
+                <td>
+                  <div className="skeleton h-6 w-28 rounded-md" />
+                </td>
+                <td>
+                  <div className="skeleton h-6 w-24 rounded-md" />
+                </td>
+                <td>
+                  <div className="skeleton h-5 w-20 rounded-full" />
+                </td>
+                <td className="text-right">
+                  <div className="flex justify-end gap-1">
+                    <div className="skeleton h-6 w-16 rounded-md" />
+                    <div className="skeleton h-6 w-20 rounded-md" />
+                    <div className="skeleton h-6 w-14 rounded-md" />
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobile */}
+      <div className="lg:hidden divide-y divide-base-200">
+        {skeletonRows.map((_, i) => (
+          <div key={i} className="py-4">
+            <div className="flex justify-between gap-3 mb-2">
+              <div className="skeleton h-3 w-16" />
+              <div className="skeleton h-5 w-20 rounded-full" />
+            </div>
+            <div className="skeleton h-3 w-full mb-1" />
+            <div className="skeleton h-3 w-3/4 mb-3" />
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <div className="skeleton h-8 w-full" />
+              <div className="skeleton h-8 w-full" />
+            </div>
+            <div className="flex gap-1">
+              <div className="skeleton h-6 w-16 rounded-md" />
+              <div className="skeleton h-6 w-20 rounded-md" />
+              <div className="skeleton h-6 w-14 rounded-md" />
+            </div>
+          </div>
+        ))}
+      </div>
 
       {/* Pagination skeleton */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mt-4">
+      <div className="flex flex-col sm:flex-row justify-between gap-3 mt-4 pt-4 border-t border-base-200">
         <div className="skeleton h-6 w-32" />
-        <div className="skeleton h-3 w-24" />
+        <div className="skeleton h-3 w-24 mx-auto" />
         <div className="skeleton h-8 w-24 rounded-md" />
       </div>
     </div>
   );
 }
 
-// Version history modal
+/* ---------------------------------------------------------------- */
+/* Version history modal                                            */
+/* ---------------------------------------------------------------- */
 function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
   const queryClient = useQueryClient();
   const [restoringVersion, setRestoringVersion] = useState(null);
@@ -720,9 +1060,7 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
   const handleRestore = async (version) => {
     const ok = await confirmAction(
       `Restore from v${version}?`,
-      "A new version will be created with the state of v" +
-      version +
-      ". Your history is preserved — nothing is deleted.",
+      `A new version will be created with the state of v${version}. Your history is preserved — nothing is deleted.`,
       "Restore",
     );
     if (!ok) return;
@@ -751,149 +1089,164 @@ function HistoryModal({ commentId, datasetId, onClose, onRestored }) {
 
   return (
     <div className="modal modal-open">
-      <div className="modal-box max-w-2xl">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-lg flex items-center gap-2">
-            <History className="w-5 h-5" />
-            Version History
-          </h3>
+      <div className="modal-box max-w-2xl p-0">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 sm:p-6 border-b border-base-200">
+          <div>
+            <h3 className="font-bold text-lg flex items-center gap-2">
+              <History className="w-5 h-5" />
+              Version History
+            </h3>
+            <p className="text-xs text-base-content/50 mt-1">
+              Restoring creates a new version. No history is deleted.
+            </p>
+          </div>
           <button
             className="btn btn-sm btn-ghost btn-circle"
             onClick={onClose}
+            aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <p className="text-xs text-base-content/50 mb-4">
-          Restoring a version creates a new version. No history is deleted.
-        </p>
+        {/* Body */}
+        <div className="p-4 sm:p-6 max-h-[70vh] overflow-y-auto">
+          {isLoading && <HistoryListSkeleton rows={3} />}
 
-        {/* Skeleton while loading versions */}
-        {isLoading && <HistoryListSkeleton rows={3} />}
+          {!isLoading && versions.length === 0 && (
+            <p className="text-sm text-base-content/60 text-center py-4">
+              No versions found.
+            </p>
+          )}
 
-        {!isLoading && versions.length === 0 && (
-          <p className="text-sm text-base-content/60 text-center py-4">
-            No versions found.
-          </p>
-        )}
+          {versions.length > 0 && (
+            <ul className="space-y-2">
+              {versions.map((v, idx) => {
+                const isLatest = idx === 0;
+                const isRestore = v.changeType === "restore";
 
-        {versions.length > 0 && (
-          <ul className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-            {versions.map((v, idx) => {
-              const isLatest = idx === 0;
-              const isRestore = v.changeType === "restore";
-
-              return (
-                <li
-                  key={v._id}
-                  className={`border rounded-lg p-3 ${isLatest
-                      ? "border-primary bg-primary/5"
-                      : "border-base-300"
+                return (
+                  <li
+                    key={v._id}
+                    className={`border rounded-lg p-3 ${
+                      isLatest
+                        ? "border-primary bg-primary/5"
+                        : "border-base-300"
                     }`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={`badge badge-sm ${isLatest ? "badge-primary" : ""
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span
+                          className={`badge badge-sm ${
+                            isLatest ? "badge-primary" : ""
                           }`}
-                      >
-                        v{v.version}
-                        {isLatest && " · current"}
-                      </span>
-
-                      <span
-                        className={`badge badge-sm badge-outline ${v.changeType === "import"
-                            ? "badge-info"
-                            : v.changeType === "annotation"
-                              ? "badge-success"
-                              : v.changeType === "update"
-                                ? "badge-warning"
-                                : v.changeType === "restore"
-                                  ? "badge-secondary"
-                                  : ""
-                          }`}
-                      >
-                        {v.changeType}
-                      </span>
-
-                      {isRestore && v.restoredFrom && (
-                        <span className="badge badge-sm badge-accent">
-                          ← from v{v.restoredFrom}
+                        >
+                          v{v.version}
+                          {isLatest && " · current"}
                         </span>
+
+                        <span
+                          className={`badge badge-sm badge-outline ${
+                            v.changeType === "import"
+                              ? "badge-info"
+                              : v.changeType === "annotation"
+                                ? "badge-success"
+                                : v.changeType === "update"
+                                  ? "badge-warning"
+                                  : v.changeType === "restore"
+                                    ? "badge-secondary"
+                                    : ""
+                          }`}
+                        >
+                          {v.changeType}
+                        </span>
+
+                        {isRestore && v.restoredFrom && (
+                          <span className="badge badge-sm badge-accent">
+                            ← v{v.restoredFrom}
+                          </span>
+                        )}
+                      </div>
+
+                      {!isLatest && (
+                        <button
+                          className="btn btn-xs btn-outline gap-1"
+                          onClick={() => handleRestore(v.version)}
+                          disabled={restoringVersion !== null}
+                        >
+                          {restoringVersion === v.version ? (
+                            <span className="loading loading-spinner loading-xs" />
+                          ) : (
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          )}
+                          Restore
+                        </button>
                       )}
                     </div>
 
-                    {!isLatest && (
-                      <button
-                        className="btn btn-xs btn-outline gap-1"
-                        onClick={() => handleRestore(v.version)}
-                        disabled={restoringVersion !== null}
-                      >
-                        {restoringVersion === v.version ? (
-                          <span className="loading loading-spinner loading-xs" />
-                        ) : (
-                          <RotateCcw className="w-3.5 h-3.5" />
-                        )}
-                        Restore
-                      </button>
-                    )}
-                  </div>
+                    <div className="text-xs text-base-content/50 mb-2">
+                      {new Date(v.createdAt).toLocaleString()}
+                    </div>
 
-                  <div className="text-xs text-base-content/60 mb-2">
-                    {new Date(v.createdAt).toLocaleString()}
-                  </div>
-
-                  <div className="text-xs space-y-1">
-                    <div>
-                      <span className="text-base-content/50">Sentiment:</span>{" "}
-                      <strong>{v.snapshot.sentiment}</strong>
-                    </div>
-                    <div>
-                      <span className="text-base-content/50">Type:</span>{" "}
-                      <strong>{v.snapshot.type}</strong>
-                    </div>
-                    <div>
-                      <span className="text-base-content/50">Status:</span>{" "}
-                      <strong>{v.snapshot.status}</strong>
-                    </div>
-                    <div className="pt-1">
-                      <span className="text-base-content/50">Text:</span>{" "}
-                      <span className="whitespace-pre-wrap wrap-break-word">
-                        {v.snapshot.commentText}
-                      </span>
-                    </div>
-                    {v.changedFields?.length > 0 && (
-                      <div className="pt-1">
-                        <span className="text-base-content/50">Changed:</span>{" "}
-                        <span className="font-mono">
-                          {v.changedFields.join(", ")}
+                    <div className="text-xs space-y-1">
+                      <div className="flex gap-2">
+                        <span className="text-base-content/50 w-20 shrink-0">
+                          Sentiment
+                        </span>
+                        <strong>{v.snapshot.sentiment}</strong>
+                      </div>
+                      <div className="flex gap-2">
+                        <span className="text-base-content/50 w-20 shrink-0">
+                          Type
+                        </span>
+                        <strong>{v.snapshot.type}</strong>
+                      </div>
+                      <div className="flex gap-2">
+                        <span className="text-base-content/50 w-20 shrink-0">
+                          Status
+                        </span>
+                        <strong>{v.snapshot.status}</strong>
+                      </div>
+                      <div className="flex gap-2 pt-1">
+                        <span className="text-base-content/50 w-20 shrink-0">
+                          Text
+                        </span>
+                        <span className="whitespace-pre-wrap wrap-break-word flex-1">
+                          {v.snapshot.commentText}
                         </span>
                       </div>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+                      {v.changedFields?.length > 0 && (
+                        <div className="flex gap-2 pt-1">
+                          <span className="text-base-content/50 w-20 shrink-0">
+                            Changed
+                          </span>
+                          <span className="font-mono text-[11px]">
+                            {v.changedFields.join(", ")}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
 
-        <div className="modal-action">
+        {/* Footer */}
+        <div className="p-4 sm:p-6 border-t border-base-200 flex justify-end">
           <button className="btn" onClick={onClose}>
             Close
           </button>
         </div>
       </div>
-      <div
-        className="modal-backdrop"
-        onClick={onClose}
-        aria-hidden="true"
-      />
+
+      <div className="modal-backdrop" onClick={onClose} aria-hidden="true" />
     </div>
   );
 }
 
-// Small skeleton used inside the History modal while versions load
 function HistoryListSkeleton({ rows = 3 }) {
   return (
     <div className="space-y-2">
