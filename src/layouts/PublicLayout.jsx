@@ -12,6 +12,7 @@ import {
   BarChart3,
 } from "lucide-react";
 import { useAuth } from "../context/useAuth";
+import JsonProviderNotice from "../components/JsonProviderNotice";
 
 const linkClass = ({ isActive }) =>
   `group relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -39,6 +40,8 @@ export default function PublicLayout() {
 
   return (
     <div className="min-h-screen bg-base-200">
+      <JsonProviderNotice />
+
       <header className="sticky top-0 z-30 border-b border-base-content/5 bg-base-100/80 backdrop-blur-xl">
         <div className="navbar min-h-16 px-4">
           <div className="flex-1 flex items-center gap-2.5">

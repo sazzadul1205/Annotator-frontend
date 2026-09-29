@@ -14,7 +14,7 @@ export async function checkHealth() {
 
     // 200 with success:true → healthy
     if (res.data?.success) {
-      return { ok: true };
+      return { ok: true, provider: res.data?.storage?.provider ?? null };
     }
 
     // 200 with success:false (unusual, but be safe)

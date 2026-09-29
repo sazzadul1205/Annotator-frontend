@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { checkHealth } from "../services/healthApi";
+import { StorageContext } from "../context/StorageContext";
 
 export default function HealthGate({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
 
   const [checking, setChecking] = useState(true);
+  // Which storage provider the backend booted with. Read once here because this
+  // health check already happens on every app load.
+  const [provider, setProvider] = useState(null);
 
   // Initial health check on mount
   useEffect(() => {
@@ -17,6 +21,7 @@ export default function HealthGate({ children }) {
       if (cancelled) return;
 
       if (res.ok) {
+        setProvider(res.provider ?? null);
         setChecking(false);
         return;
       }
@@ -60,5 +65,9 @@ export default function HealthGate({ children }) {
     );
   }
 
-  return children;
+  return (
+    <StorageContext.Provider value={{ provider, ready: !checking }}>
+      {children}
+    </StorageContext.Provider>
+  );
 }
