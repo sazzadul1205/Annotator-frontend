@@ -21,6 +21,7 @@ import MediaLabelSetsPage from "./pages/MediaLabelSetsPage";
 
 import PublicLayout from "./layouts/PublicLayout";
 import AnalyticsPage from "./pages/AnalyticsPage";
+import TeamActivityPage from "./pages/TeamActivityPage";
 
 export default function App() {
   return (
@@ -84,7 +85,14 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-
+        <Route
+          path="/presence"
+          element={
+            <ProtectedRoute adminOnly>
+              <TeamActivityPage />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/analytics"
           element={

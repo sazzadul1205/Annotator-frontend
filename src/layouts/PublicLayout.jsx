@@ -12,9 +12,12 @@ import {
   BarChart3,
   Images,
   Shapes,
+  Activity,
 } from "lucide-react";
 import { useAuth } from "../context/useAuth";
 import JsonProviderNotice from "../components/JsonProviderNotice";
+import usePresenceHeartbeat from "../hooks/usePresenceHeartbeat";
+import PresenceDot from "../components/presence/PresenceDot";
 
 const linkClass = ({ isActive }) =>
   `group relative flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
@@ -26,6 +29,11 @@ const linkClass = ({ isActive }) =>
 export default function PublicLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+
+  // Mount the presence heartbeat once per app lifetime. It tracks local
+  // activity, sends heartbeats on the server-defined interval, and updates
+  // the indicator in the header.
+  usePresenceHeartbeat();
 
   const handleLogout = async () => {
     await logout();
@@ -60,8 +68,9 @@ export default function PublicLayout() {
             </div>
           </div>
 
-          <div className="flex-none flex items-center gap-3">
-            <div className="hidden sm:flex items-center gap-2.5 pl-3 pr-1 border-l border-base-content/10">
+<div className="flex-none flex items-center gap-3">
+              <PresenceDot />
+              <div className="hidden sm:flex items-center gap-2.5 pl-3 pr-1 border-l border-base-content/10">
               <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-semibold">
                 {initials}
               </div>
@@ -132,6 +141,11 @@ export default function PublicLayout() {
                 <NavLink to="/media/label-sets" className={linkClass}>
                   <Shapes className="w-4 h-4" />
                   Media Labels
+                  <ChevronRight className="w-3.5 h-3.5 ml-auto opacity-0 -translate-x-1 group-hover:opacity-60 group-hover:translate-x-0 transition-all" />
+                </NavLink>
+                <NavLink to="/presence" className={linkClass}>
+                  <Activity className="w-4 h-4" />
+                  Team Activity
                   <ChevronRight className="w-3.5 h-3.5 ml-auto opacity-0 -translate-x-1 group-hover:opacity-60 group-hover:translate-x-0 transition-all" />
                 </NavLink>
                 <NavLink to="/analytics" className={linkClass}>
