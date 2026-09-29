@@ -10,6 +10,8 @@ import {
   History,
   Tags,
   BarChart3,
+  Images,
+  Shapes,
 } from "lucide-react";
 import { useAuth } from "../context/useAuth";
 import JsonProviderNotice from "../components/JsonProviderNotice";
@@ -100,6 +102,12 @@ export default function PublicLayout() {
               <ChevronRight className="w-3.5 h-3.5 ml-auto opacity-0 -translate-x-1 group-hover:opacity-60 group-hover:translate-x-0 transition-all" />
             </NavLink>
 
+            <NavLink to="/media" className={linkClass}>
+              <Images className="w-4 h-4" />
+              Media
+              <ChevronRight className="w-3.5 h-3.5 ml-auto opacity-0 -translate-x-1 group-hover:opacity-60 group-hover:translate-x-0 transition-all" />
+            </NavLink>
+
             {user?.role === "admin" && (
               <>
                 <p className="px-3 pt-4 pb-2 text-[10px] uppercase tracking-widest text-base-content/40 font-semibold">
@@ -119,6 +127,11 @@ export default function PublicLayout() {
                 <NavLink to="/taxonomies" className={linkClass}>
                   <Tags className="w-4 h-4" />
                   Taxonomies
+                  <ChevronRight className="w-3.5 h-3.5 ml-auto opacity-0 -translate-x-1 group-hover:opacity-60 group-hover:translate-x-0 transition-all" />
+                </NavLink>
+                <NavLink to="/media/label-sets" className={linkClass}>
+                  <Shapes className="w-4 h-4" />
+                  Media Labels
                   <ChevronRight className="w-3.5 h-3.5 ml-auto opacity-0 -translate-x-1 group-hover:opacity-60 group-hover:translate-x-0 transition-all" />
                 </NavLink>
                 <NavLink to="/analytics" className={linkClass}>

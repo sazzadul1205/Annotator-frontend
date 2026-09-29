@@ -14,6 +14,11 @@ import UsersPage from "./pages/UsersPage";
 import AuditPage from "./pages/AuditPage";
 import TaxonomiesPage from "./pages/TaxonomiesPage";
 
+import MediaDatasetsPage from "./pages/MediaDatasetsPage";
+import MediaDatasetDetailPage from "./pages/MediaDatasetDetailPage";
+import MediaAnnotatePage from "./pages/MediaAnnotatePage";
+import MediaLabelSetsPage from "./pages/MediaLabelSetsPage";
+
 import PublicLayout from "./layouts/PublicLayout";
 import AnalyticsPage from "./pages/AnalyticsPage";
 
@@ -36,6 +41,17 @@ export default function App() {
         <Route path="/datasets" element={<DatasetsPage />} />
         <Route path="/datasets/:id" element={<DatasetDetailPage />} />
 
+        {/* Media (image / video) annotation */}
+        <Route path="/media" element={<MediaDatasetsPage />} />
+        <Route
+          path="/media/datasets/:datasetId"
+          element={<MediaDatasetDetailPage />}
+        />
+        <Route
+          path="/media/datasets/:datasetId/annotate/:assetId"
+          element={<MediaAnnotatePage />}
+        />
+
         <Route
           path="/audit"
           element={
@@ -57,6 +73,14 @@ export default function App() {
           element={
             <ProtectedRoute adminOnly>
               <TaxonomiesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/media/label-sets"
+          element={
+            <ProtectedRoute adminOnly>
+              <MediaLabelSetsPage />
             </ProtectedRoute>
           }
         />
